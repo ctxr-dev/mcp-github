@@ -20,17 +20,17 @@ async function freshServerModule() {
   return import(url.href);
 }
 
-test("registerTool: stores a tool with its description + inputSchema", async () => {
+test("registerTool: stores the tool under its name", async () => {
   const mod = await freshServerModule();
   mod.registerTool("gh.example", {
     description: "Example tool",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
     handler: async () => ({ ok: true }),
   });
-  // No public getter on the registry by design; the smoke test
-  // confirms the listing surface end-to-end. Here we just confirm
-  // registration succeeded (no throw).
-  assert.ok(true);
+  // Use the public introspection helper so the assertion catches a
+  // hypothetical future regression where registration is silently a
+  // no-op (which a "no throw" assertion would not).
+  assert.deepEqual(mod.getRegisteredToolNames(), ["gh.example"]);
 });
 
 test("registerTool: rejects a duplicate name", async () => {
@@ -47,17 +47,20 @@ test("registerTool: rejects a duplicate name", async () => {
   assert.throws(() => mod.registerTool("gh.dup", entry), /already registered/);
 });
 
-test("registerTool: many tools coexist (registry holds them all)", async () => {
+test("registerTool: many tools coexist and preserve insertion order", async () => {
   const mod = await freshServerModule();
+  const expected: string[] = [];
   for (let i = 0; i < 10; i++) {
-    mod.registerTool(`gh.tool_${i}`, {
+    const name = `gh.tool_${i}`;
+    mod.registerTool(name, {
       description: `Tool ${i}`,
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       handler: async () => ({ i }),
     });
+    expected.push(name);
   }
-  // No throws => all 10 registered. The ordering invariant
-  // (insertion-order preserved across ListTools) is exercised by
-  // the smoke test against the real stdio surface.
-  assert.ok(true);
+  // Verify every name made it in, and in registration order — Map
+  // iteration order pins the ListTools response so a refactor that
+  // swaps the storage to anything unordered must surface here.
+  assert.deepEqual(mod.getRegisteredToolNames(), expected);
 });

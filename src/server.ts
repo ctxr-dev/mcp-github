@@ -6,6 +6,9 @@
 // will call. Keeping the bootstrap minimal means the CI build step
 // always has something to publish even when no tool work has shipped.
 
+import { resolve as resolvePath } from "node:path";
+import { pathToFileURL } from "node:url";
+
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -34,6 +37,21 @@ export function registerTool(name: string, entry: ToolEntry): void {
     throw new Error(`mcp-github: tool '${name}' is already registered`);
   }
   tools.set(name, entry);
+}
+
+// Read-only introspection over the registry. Two reasons it exists:
+//
+//   - Unit tests need an observable signal that registration actually
+//     persisted, beyond "the call did not throw". Without this they
+//     would pass even if `registerTool` were silently a no-op.
+//   - Future operational tooling (e.g. a `gh.list_tools` tool, or a
+//     CLI dump for debugging) needs the same view, and a single
+//     getter beats every caller poking at module internals.
+//
+// Insertion order is preserved (Map iteration order), so the result
+// also pins the order ListTools will hand back to MCP clients.
+export function getRegisteredToolNames(): string[] {
+  return Array.from(tools.keys());
 }
 
 export async function startServer(): Promise<void> {
@@ -79,10 +97,17 @@ export async function startServer(): Promise<void> {
 }
 
 // Direct-run guard so this module can also be imported by tests
-// without spinning up the stdio transport. The conventional check
-// (process.argv[1] equals this file) is replaced with the
-// import.meta.url comparison that survives bin-shim launching.
-const isDirectRun = import.meta.url === `file://${process.argv[1]}`;
+// without spinning up the stdio transport. We compare the canonical
+// file:// URL of process.argv[1] against this module's import.meta.url:
+// going through `pathToFileURL(resolve(...))` yields the percent-encoded,
+// drive-aware form Node uses internally, which a naive
+// `file://${argv[1]}` template (with raw spaces, backslashes, or
+// duplicated leading slashes from absolute paths) would not match.
+const argv1 = process.argv[1];
+const isDirectRun =
+  typeof argv1 === "string" &&
+  argv1.length > 0 &&
+  pathToFileURL(resolvePath(argv1)).href === import.meta.url;
 if (isDirectRun) {
   startServer().catch((err) => {
     process.stderr.write(`mcp-github fatal: ${err?.message ?? String(err)}\n`);

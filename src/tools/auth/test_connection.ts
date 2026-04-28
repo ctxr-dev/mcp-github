@@ -42,7 +42,10 @@ export function registerTestConnectionTool(authedRequest: AuthedRequest): void {
     description:
       "Verify GitHub auth health. Runs `{ viewer { login } }` and " +
       "returns the authenticated user's login plus the OAuth scopes " +
-      "attached to the resolved PAT.",
+      "advertised in the `x-oauth-scopes` response header. " +
+      "Note: `scopes` is `[]` for fine-grained PATs and most GitHub " +
+      "App tokens, where GitHub does not emit that header — an empty " +
+      "list means \"unknown\", not \"no scopes\".",
     inputSchema: {
       type: "object",
       properties: {},
@@ -83,9 +86,12 @@ export async function testConnection(
 }
 
 // `x-oauth-scopes` is a comma-separated list (e.g. "repo, read:org").
-// GitHub omits the header entirely for fine-grained PATs, in which case
-// we return an empty array; the consumer can still treat that as a
-// successful auth probe — login was returned, after all.
+// GitHub omits the header entirely for fine-grained PATs and most
+// GitHub App tokens, in which case we return an empty array. Auth is
+// still healthy in that case (login came back), but consumers must
+// not interpret `[]` as "the token has no permissions" — it means
+// "scope information is unavailable", not "scopes empty". The tool
+// description spells this out for callers.
 function parseScopes(headers: Record<string, unknown>): string[] {
   const raw = headers["x-oauth-scopes"];
   if (typeof raw !== "string") return [];

@@ -14,9 +14,11 @@ const ENV_VARS = [
 export type PatEnvVar = (typeof ENV_VARS)[number];
 
 // Exposed as a constant so tests can iterate the canonical list rather
-// than redeclaring it. Frozen tuple keeps insertion order and prevents
-// accidental mutation by callers.
-export const PAT_ENV_VARS: readonly PatEnvVar[] = ENV_VARS;
+// than redeclaring it. Object.freeze prevents callers from mutating
+// the array at runtime: the `readonly` annotation is only a
+// TypeScript-level guarantee, easily defeated by `as any` in JS code,
+// so we belt-and-brace it.
+export const PAT_ENV_VARS: readonly PatEnvVar[] = Object.freeze([...ENV_VARS]);
 
 export class MissingPatError extends Error {
   override readonly name = "MissingPatError";

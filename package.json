@@ -1,0 +1,44 @@
+{
+  "name": "@ctxr/mcp-github",
+  "version": "0.1.0",
+  "description": "GraphQL-first GitHub MCP server. Replaces gh CLI shell-outs in @ctxr agent bundles with structured tool calls; uses GraphQL requestReviews(botIds) so review requests work for bot accounts (Copilot, Dependabot) where the REST equivalent silently no-ops.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ctxr-dev/mcp-github.git"
+  },
+  "homepage": "https://github.com/ctxr-dev/mcp-github#readme",
+  "bugs": {
+    "url": "https://github.com/ctxr-dev/mcp-github/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "mcp-github": "./dist/server.mjs"
+  },
+  "main": "./dist/server.mjs",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node ./scripts/post-build.mjs",
+    "test": "node --test --test-reporter=spec --import tsx ./tests/unit/**/*.test.ts",
+    "test:integration": "GITHUB_PAT_LIVE=1 node --test --test-reporter=spec --import tsx ./tests/integration/**/*.test.ts",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "prepack": "npm run build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@octokit/graphql": "^8.0.0",
+    "@octokit/request-error": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -9,7 +9,12 @@
 // The public surface is a single function:
 //
 //     const graphql = createGraphqlClient(authedRequest);
-//     const data = await graphql<ResponseShape>("queries/group/name", { vars });
+//     const data = await graphql<ResponseShape>("group/name", { vars });
+//
+// The query name is the file path under `src/graphql/queries/` minus
+// the `.graphql` suffix (e.g. `_health/viewer` → loads
+// `src/graphql/queries/_health/viewer.graphql`). It does NOT include
+// a leading `queries/` segment.
 //
 // Errors are mapped onto three structured classes (see ./errors.ts):
 //   - GraphqlError (response carries an `errors[]` array)

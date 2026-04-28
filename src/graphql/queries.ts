@@ -22,7 +22,7 @@
 // pipeline working?" smoke target and is exercised by the unit tests.
 
 import { readFile, readdir } from "node:fs/promises";
-import { resolve, dirname, relative } from "node:path";
+import { resolve, dirname, relative, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -104,8 +104,14 @@ async function readQueryFile(name: string): Promise<string> {
   // come from server-side code (not user input), but the registry
   // is also conceptually a public API; preventing escape from the
   // queries root keeps the surface honest.
+  //
+  // The `isAbsolute(rel)` check is the Windows-cross-drive case: when
+  // `abs` lives on a different drive than `QUERIES_ROOT`,
+  // `path.relative()` returns an absolute path (e.g. `D:\\...`)
+  // rather than a `..`-prefixed relative one. Just checking the
+  // `..` / `/` prefixes would let that through.
   const rel = relative(QUERIES_ROOT, abs);
-  if (rel.startsWith("..") || rel.startsWith("/")) {
+  if (rel.startsWith("..") || rel.startsWith("/") || isAbsolute(rel)) {
     throw new Error(
       `mcp-github: query name '${name}' escapes queries root`,
     );

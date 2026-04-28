@@ -29,6 +29,7 @@ import {
   writeFileSync,
   chmodSync,
   cpSync,
+  rmSync,
   existsSync,
 } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -86,8 +87,16 @@ chmodSync(mjsPath, 0o755);
 // from `src/**/*.ts` and does not see `.graphql` text files; without
 // this copy step the production build would ship a package whose
 // graphql client cannot find any of its queries.
+//
+// We `rmSync` the destination tree before copying so deletions in
+// `src/graphql/queries/**` propagate. cpSync alone is union-merge: a
+// query file removed from `src` would otherwise linger in `dist`
+// across incremental builds and remain discoverable by
+// `loadAllQueries()` in production. tsc never wipes `dist/`, so this
+// is the only place that catches the deletion.
 const queriesSrc = resolve(repoRoot, "src", "graphql", "queries");
 const queriesDst = resolve(distRoot, "graphql", "queries");
+rmSync(queriesDst, { recursive: true, force: true });
 if (existsSync(queriesSrc)) {
   cpSync(queriesSrc, queriesDst, { recursive: true });
 }

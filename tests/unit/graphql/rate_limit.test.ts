@@ -56,6 +56,21 @@ test("parseRateLimit: tolerates numeric values (not just strings)", () => {
   assert.equal(rl?.limit, 5000);
 });
 
+test("parseRateLimit: reads from a `Headers` instance (Node fetch path)", () => {
+  // Stock `fetch` returns response.headers as a `Headers` instance,
+  // which doesn't support property-style access. The parser detects
+  // the instance and routes through `.get(name)`.
+  const headers = new Headers({
+    "x-ratelimit-limit": "5000",
+    "x-ratelimit-remaining": "4999",
+    "x-ratelimit-reset": "1800000000",
+    "x-ratelimit-used": "1",
+  });
+  const rl = parseRateLimit(headers);
+  assert.equal(rl?.limit, 5000);
+  assert.equal(rl?.remaining, 4999);
+});
+
 test("enforceRateLimit: healthy response is silent", () => {
   const warnings: string[] = [];
   const rl = enforceRateLimit(rlHeaders(), (m) => warnings.push(m));

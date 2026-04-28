@@ -15,6 +15,17 @@
 
 import { RateLimitExhaustedError } from "./errors.js";
 
+// Accept both shapes that callers actually have: a plain object
+// (`@octokit/request` always returns `Record<string, string>` for
+// `response.headers`) and a `Headers` instance (which Node's stock
+// `fetch` returns). The parser detects the latter via
+// `headers instanceof Headers` and routes through `Headers.get(...)`,
+// while the former is read by direct property lookup. Without this
+// dual support a `Headers` argument would silently report "no
+// rate-limit info" because the property-style read returns
+// `undefined`.
+type HeaderBag = Record<string, unknown> | Headers;
+
 // 10 is GitHub's own internal "you're getting close" line in their
 // public guidance for the GraphQL API. Below that, parallel runners
 // can easily blow past zero before we observe the next response.
@@ -27,17 +38,14 @@ export interface ParsedRateLimit {
   used: number;
 }
 
-// `headers` is typed loosely (Record<string, unknown>) because both
-// `@octokit/request` (which always returns `Record<string, string>`)
-// and Node's stock `fetch` (which returns `Headers`) need to flow
-// through here. Callers normalise to a plain object before calling.
 export function parseRateLimit(
-  headers: Record<string, unknown>,
+  headers: HeaderBag,
 ): ParsedRateLimit | undefined {
-  const limit = readNumber(headers["x-ratelimit-limit"]);
-  const remaining = readNumber(headers["x-ratelimit-remaining"]);
-  const resetAt = readNumber(headers["x-ratelimit-reset"]);
-  const used = readNumber(headers["x-ratelimit-used"]);
+  const get = headerReader(headers);
+  const limit = readNumber(get("x-ratelimit-limit"));
+  const remaining = readNumber(get("x-ratelimit-remaining"));
+  const resetAt = readNumber(get("x-ratelimit-reset"));
+  const used = readNumber(get("x-ratelimit-used"));
   // GitHub returns these as a unit; if any are missing we treat the
   // header set as absent. Don't half-parse — a partial record would
   // mislead the threshold checks below.
@@ -58,7 +66,7 @@ export function parseRateLimit(
 // `warn` is parameterised so tests can capture invocations without
 // taking over `console.warn` globally.
 export function enforceRateLimit(
-  headers: Record<string, unknown>,
+  headers: HeaderBag,
   warn: (msg: string) => void = (msg) => process.stderr.write(`${msg}\n`),
 ): ParsedRateLimit | undefined {
   const rl = parseRateLimit(headers);
@@ -82,4 +90,17 @@ function readNumber(v: unknown): number | undefined {
     return Number.isFinite(n) ? n : undefined;
   }
   return undefined;
+}
+
+// Returns a unified accessor that handles both header shapes (plain
+// object lookup vs `Headers.get()`). The Headers branch deliberately
+// uses `instanceof` rather than duck-typing on `.get` because plain
+// objects can legitimately have a `get` property of a different shape
+// (e.g. a `Map` masquerading as headers).
+function headerReader(headers: HeaderBag): (name: string) => unknown {
+  if (typeof Headers !== "undefined" && headers instanceof Headers) {
+    return (name) => headers.get(name) ?? undefined;
+  }
+  const obj = headers as Record<string, unknown>;
+  return (name) => obj[name];
 }

@@ -4,11 +4,13 @@ GraphQL-first GitHub MCP server. Replaces `gh` CLI shell-outs in [`@ctxr`
 agent bundles](https://github.com/ctxr-dev/agent-staff-engineer) with
 structured tool calls that run over the standard MCP stdio transport.
 
-The server uses GitHub's GraphQL API exclusively. The `pr_request_reviews`
-tool calls `requestReviews(input: { pullRequestId, userIds, teamIds })`,
-which actually requests reviews from bot accounts (Copilot, Dependabot,
-custom apps) where the REST `RequestReviewers` endpoint silently no-ops.
-Closing that gap is the original reason this server exists.
+The long-term design uses GitHub's GraphQL API exclusively. A planned
+`pr_request_reviews` tool (lands in a later MCP-* PR) will call
+`requestReviews(input: { pullRequestId, userIds, teamIds })`, which can
+request reviews from bot accounts (Copilot, Dependabot, custom apps)
+where the REST `RequestReviewers` endpoint silently no-ops. Closing that
+gap is the original reason this server exists. The current v0.1 boot
+intentionally registers zero tools; tools land PR by PR.
 
 ## Status
 
@@ -45,14 +47,18 @@ Add to your MCP client's server config:
 }
 ```
 
-The server resolves the token from `GITHUB_TOKEN`, then `GH_TOKEN`, then
-`GITHUB_PERSONAL_ACCESS_TOKEN` (matching `gh` CLI fallback order).
+Planned auth behaviour (lands in MCP-2): the server will resolve the
+token from `GITHUB_TOKEN`, then `GH_TOKEN`, then
+`GITHUB_PERSONAL_ACCESS_TOKEN` (matching `gh` CLI fallback order). At
+v0.1 bootstrap the server starts cleanly without auth and lists zero
+tools.
 
 ## Tool reference
 
-The full tool list with input schemas, output shapes, and examples lives
-at [`docs/tool-reference.md`](./docs/tool-reference.md) (added by MCP-13).
-At v0.1 the placeholder is intentional: tools land PR by PR.
+The full tool list with input schemas, output shapes, and examples will
+live at `docs/tool-reference.md` once MCP-13 lands. At v0.1 the file is
+not yet present: tools land PR by PR, and the reference is generated
+once the surface stabilises.
 
 ## Develop
 

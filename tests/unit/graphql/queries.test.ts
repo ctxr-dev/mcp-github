@@ -13,6 +13,7 @@ import {
   loadQuery,
   loadAllQueries,
   _resetQueryCache,
+  _setProductionOverride,
 } from "../../../src/graphql/queries.ts";
 
 // Reset the in-process cache between tests so production-mode
@@ -55,9 +56,12 @@ test("loadAllQueries: indexes the canonical placeholder", async () => {
 });
 
 test("loadQuery: production path serves from the cache after first init", async () => {
+  // Use the module-scoped production override rather than mutating
+  // process.env.NODE_ENV. Node's test runner runs tests concurrently,
+  // and a global env mutation here would race the dev-path tests
+  // above; the override flips just this one module's switch.
   freshCache();
-  const original = process.env["NODE_ENV"];
-  process.env["NODE_ENV"] = "production";
+  _setProductionOverride(true);
   try {
     // Two sequential loads should both succeed and return identical
     // contents; in prod mode the second call goes through the cache.
@@ -66,11 +70,10 @@ test("loadQuery: production path serves from the cache after first init", async 
     assert.equal(a, b);
     assert.match(a, /viewer/);
   } finally {
-    if (original === undefined) {
-      delete process.env["NODE_ENV"];
-    } else {
-      process.env["NODE_ENV"] = original;
-    }
+    // freshCache() also clears the override, but we belt-and-brace it
+    // so a future change that splits cache-reset from override-reset
+    // doesn't leak prod mode into later tests.
+    _setProductionOverride(undefined);
     freshCache();
   }
 });

@@ -34,7 +34,19 @@ const QUERIES_ROOT = resolve(HERE, "queries");
 const cache = new Map<string, string>();
 let initialized = false;
 
+// Test-only override for the dev/prod switch. Node's test runner
+// executes tests concurrently by default, so the production-cache-path
+// test flipping `process.env.NODE_ENV` directly would race other
+// tests in this file (and conflict with the repo's stated approach of
+// not mutating process.env in tests). The override is module-scoped
+// and reset alongside the cache by `_resetQueryCache()`.
+let productionOverride: boolean | undefined;
+export function _setProductionOverride(value: boolean | undefined): void {
+  productionOverride = value;
+}
+
 function isProduction(): boolean {
+  if (productionOverride !== undefined) return productionOverride;
   return process.env["NODE_ENV"] === "production";
 }
 
@@ -90,12 +102,14 @@ export async function loadAllQueries(): Promise<ReadonlyMap<string, string>> {
 }
 
 // Test-only hook: drop the cached state so a fresh `loadAllQueries`
-// re-reads the directory. Not exported through the public surface,
-// but kept on a separate function so tests can grab it via the
-// module's internal namespace if needed.
+// re-reads the directory. Also clears the production-mode override so
+// each test starts in dev mode unless it explicitly opts in. Not
+// exported through the public surface, but kept on a separate function
+// so tests can grab it via the module's internal namespace if needed.
 export function _resetQueryCache(): void {
   cache.clear();
   initialized = false;
+  productionOverride = undefined;
 }
 
 async function readQueryFile(name: string): Promise<string> {

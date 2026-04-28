@@ -37,7 +37,12 @@ function parseFrames(buffer) {
     try {
       messages.push(JSON.parse(line));
     } catch (err) {
-      throw new Error(`smoke: malformed JSON line: ${line.slice(0, 200)}: ${err.message}`);
+      // Defensive: JSON.parse throws SyntaxError, but downstream
+      // wrappers (or future Node versions) might surface a non-Error
+      // value here. Reading `.message` directly would itself throw
+      // and mask the original parse failure.
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`smoke: malformed JSON line: ${line.slice(0, 200)}: ${msg}`);
     }
   }
   return { messages, leftover: buffer.slice(cursor) };
@@ -76,7 +81,11 @@ child.stdout.on("data", (chunk) => {
         child.kill("SIGTERM");
         process.exit(0);
       } catch (err) {
-        process.stderr.write(`smoke FAILED: ${err.message}\n`);
+        // Same defensive shape as parseFrames: never assume `err` is
+        // an Error instance, since reading `.message` on a non-Error
+        // value would mask the original failure with a fresh exception.
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`smoke FAILED: ${msg}\n`);
         clearTimeout(timeout);
         resolved = true;
         child.kill("SIGKILL");

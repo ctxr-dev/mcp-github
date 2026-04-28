@@ -1,54 +1,68 @@
 #!/usr/bin/env node
 // scripts/post-build.mjs
 //
-// Post-tsc step: rename dist/server.js -> dist/server.mjs and prepend a
-// shebang. The bin entry in package.json points at server.mjs, but tsc
-// emits .js (we use ESM with `type: module`, so .js is already ESM,
-// but a .mjs extension is the convention for "definitely ESM" + lets
-// us ship a `#!/usr/bin/env node` line that npm makes executable on
-// install. Keeping this as a separate script (not inline in the npm
-// build script) means the rename + shebang treatment is testable and
-// the build command stays a single tsc call.
+// Post-tsc step: produce `dist/server.mjs` as the executable bin
+// shim. tsc emits `dist/server.js` + `dist/server.d.ts` + sourcemaps,
+// and we leave them all in place so the importable library entry
+// (pointed at by package.json `main`/`types`/`exports`) keeps the
+// canonical `.js`/`.d.ts`/`.js.map`/`.d.ts.map` quartet that node,
+// TypeScript, and stack-trace tooling expect.
+//
+// The bin entry in package.json points at `dist/server.mjs` because:
+//
+//   - The shebang line lets npm install mark it executable on POSIX.
+//   - The .mjs suffix is the convention for "definitely ESM" entry
+//     points, even when the surrounding package is already module-typed.
+//
+// The shim itself is a tiny wrapper that imports `startServer` from
+// the sibling `./server.js` and only invokes it when the module is
+// the process entrypoint. That keeps `npx @ctxr/mcp-github` (and
+// `mcp-github` after install) working while avoiding import-time
+// side effects when something resolves `dist/server.mjs` as a
+// package entry.
+//
+// Keeping this as a separate script (not inline in the npm build
+// script) means the wrapper + chmod treatment is testable and the
+// build command stays a single tsc call.
 
-import { readFileSync, renameSync, writeFileSync, chmodSync } from "node:fs";
+import { writeFileSync, chmodSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const distRoot = resolve(__dirname, "..", "dist");
-const jsPath = resolve(distRoot, "server.js");
 const mjsPath = resolve(distRoot, "server.mjs");
 
-const SHEBANG = "#!/usr/bin/env node\n";
+// The direct-run guard compares the canonical file:// URL of
+// process.argv[1] against this module's own import.meta.url. Going
+// through `pathToFileURL(resolve(...))` yields the percent-encoded,
+// normalised, absolute form Node uses internally — a verbatim
+// `process.argv[1]` comparison would miss when the entry was
+// launched via a relative path, a symlink, or with non-canonical
+// path normalisation on Windows.
+const SHIM = `#!/usr/bin/env node
+import { startServer } from "./server.js";
+import { pathToFileURL } from "node:url";
+import { resolve } from "node:path";
 
-const original = readFileSync(jsPath, "utf8");
-// Avoid double-shebang if the source ever grows one for some reason
-// (TypeScript currently strips them, but defending here keeps the
-// rename idempotent under unusual configs).
-const withShebang = original.startsWith("#!")
-  ? original
-  : SHEBANG + original;
+const isDirectRun = (() => {
+  const entry = process.argv[1];
+  if (typeof entry !== "string" || entry.length === 0) return false;
+  return pathToFileURL(resolve(entry)).href === import.meta.url;
+})();
 
-writeFileSync(mjsPath, withShebang);
+if (isDirectRun) {
+  startServer().catch((err) => {
+    process.stderr.write(\`mcp-github fatal: \${err?.message ?? String(err)}\\n\`);
+    process.exit(1);
+  });
+}
+`;
+
+writeFileSync(mjsPath, SHIM);
 // 0o755: rwxr-xr-x, so the npm bin shim that points at this file can
 // execute it directly on POSIX. Windows ignores the bit; npm rewrites
 // the bin shim to a .cmd file at install time anyway.
 chmodSync(mjsPath, 0o755);
-
-// Remove the unprefixed copy so consumers cannot accidentally import
-// a different file shape via require/resolve heuristics.
-try {
-  renameSync(jsPath, jsPath + ".pretranspile");
-  // Use the rename as the delete signal: if the rename succeeded we
-  // know we have ownership of the file; the leftover ".pretranspile"
-  // is then unlinked. Two-step keeps a single failure path (rename)
-  // instead of unlink-then-recover.
-  const { unlinkSync } = await import("node:fs");
-  unlinkSync(jsPath + ".pretranspile");
-} catch {
-  // best-effort; if dist/server.js is gone (e.g. someone else cleaned
-  // it) the rename above already produced the canonical .mjs and the
-  // user can ignore this branch.
-}
 
 process.stdout.write(`mcp-github: dist/server.mjs ready\n`);

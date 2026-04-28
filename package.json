@@ -18,7 +18,14 @@
   "bin": {
     "mcp-github": "./dist/server.mjs"
   },
-  "main": "./dist/server.mjs",
+  "main": "./dist/server.js",
+  "types": "./dist/server.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js"
+    }
+  },
   "files": [
     "dist",
     "README.md",

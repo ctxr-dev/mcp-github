@@ -122,15 +122,26 @@ function parseScopes(headers: Record<string, unknown>): string[] {
 // distinguish (token wrong vs. token correct but missing scope) as a
 // structured Error rather than letting a raw RequestError stack-trace
 // bubble up through the MCP transport.
+//
+// We append the upstream RequestError message via `withDetail()`
+// because GitHub's 401/403 responses often carry useful context like
+// "SSO required", "API rate limit exceeded", or the specific scope
+// the token is missing. Dropping that on the floor would leave the
+// caller staring at a generic "401 Unauthorized" with no diagnostic
+// trail.
 function mapAuthError(err: unknown): Error {
   if (err instanceof RequestError) {
+    const detail =
+      typeof err.message === "string" ? err.message.trim() : "";
+    const withDetail = (message: string): Error =>
+      new Error(detail.length > 0 ? `${message} — upstream: ${detail}` : message);
     if (err.status === 401) {
-      return new Error(
+      return withDetail(
         "mcp-github: gh.test_connection: 401 Unauthorized — token is missing, expired, or revoked",
       );
     }
     if (err.status === 403) {
-      return new Error(
+      return withDetail(
         "mcp-github: gh.test_connection: 403 Forbidden — token rejected (insufficient scopes or rate-limited)",
       );
     }

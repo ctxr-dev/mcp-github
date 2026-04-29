@@ -164,8 +164,9 @@ export function registerPRRequestReviewsTool(
 ): void {
   register("gh.pr_request_reviews", {
     description:
-      "Request reviews on a PR via GraphQL `requestReviews(botIds: " +
-      "[...])`. Unlike the REST `RequestReviewers` endpoint, this " +
+      "Request reviews on a PR via the GraphQL `requestReviews(" +
+      "input: { pullRequestId, userIds, teamIds, botIds, union })` " +
+      "mutation. Unlike the REST `RequestReviewers` endpoint, this " +
       "actually requests reviews from BOT accounts (Copilot, " +
       "Dependabot, custom apps); REST silently no-ops for bots, " +
       "which is the original reason this server exists. Logins " +

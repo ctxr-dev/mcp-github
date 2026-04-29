@@ -68,7 +68,26 @@ child.stdout.on("data", (chunk) => {
   const { messages, leftover } = parseFrames(buffer);
   buffer = leftover;
   for (const m of messages) {
-    if (m.id === 2 && m.result) {
+    if (m.id !== 2) continue;
+    if (m.error) {
+      // The server replied with a JSON-RPC error for our tools/list
+      // request. Without this branch the loop would silently ignore
+      // it and the test would hang until the 10s timeout, losing the
+      // real failure reason. Fail fast and surface the payload.
+      const detail = (() => {
+        try {
+          return JSON.stringify(m.error);
+        } catch {
+          return String(m.error);
+        }
+      })();
+      process.stderr.write(`smoke FAILED: server returned error for tools/list: ${detail}\n`);
+      clearTimeout(timeout);
+      resolved = true;
+      child.kill("SIGKILL");
+      process.exit(1);
+    }
+    if (m.result) {
       try {
         const { tools } = m.result;
         if (!Array.isArray(tools)) throw new Error("expected tools array");

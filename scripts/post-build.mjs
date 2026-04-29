@@ -33,22 +33,31 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const distRoot = resolve(__dirname, "..", "dist");
 const mjsPath = resolve(distRoot, "server.mjs");
 
-// The direct-run guard compares the canonical file:// URL of
-// process.argv[1] against this module's own import.meta.url. Going
-// through `pathToFileURL(resolve(...))` yields the percent-encoded,
-// normalised, absolute form Node uses internally — a verbatim
-// `process.argv[1]` comparison would miss when the entry was
-// launched via a relative path, a symlink, or with non-canonical
-// path normalisation on Windows.
+// The direct-run guard compares the canonical filesystem path of
+// process.argv[1] against the canonical path of this module's own
+// import.meta.url. We resolve both sides through `realpathSync`
+// before comparing so the check survives:
+//   - relative argv entries (e.g. `./dist/server.mjs`)
+//   - symlinked bin shims (npm/pnpm/yarn all install the bin under
+//     a `node_modules/.bin/<name>` symlink that points at the real
+//     dist file; without realpath the two sides never match)
+//   - non-canonical path normalisation on Windows
+// The try/catch falls back to "not a direct run" if either path
+// cannot be resolved (e.g. argv[1] points at a deleted file). That
+// is the safe default for a library import.
 const SHIM = `#!/usr/bin/env node
 import { startServer } from "./server.js";
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 
 const isDirectRun = (() => {
   const entry = process.argv[1];
   if (typeof entry !== "string" || entry.length === 0) return false;
-  return pathToFileURL(resolve(entry)).href === import.meta.url;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
 })();
 
 if (isDirectRun) {

@@ -1,10 +1,15 @@
 // src/server.ts
 //
-// MCP server entry point. Registers an empty tool list at v0.1 bootstrap;
-// MCP-2 (auth + gh.test_connection) and MCP-3 (GraphQL client) layer real
-// tools on top via a registerTool() pattern that the future tool modules
-// will call. Keeping the bootstrap minimal means the CI build step
-// always has something to publish even when no tool work has shipped.
+// MCP server entry point. The package's `exports` map points
+// consumers at this module, so the public API surface is only what's
+// `export`ed here: at v0.1 bootstrap that's `startServer` (called by
+// the bin shim). Tool registry helpers + the request handlers live
+// in `./registry.js`, which is intentionally NOT part of the public
+// API — tests import it directly from source.
+
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -13,49 +18,38 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
-// Tool registry. Each entry pairs a JSON-Schema descriptor (returned to
-// MCP clients via ListTools) with the handler. Future tool modules
-// (MCP-2 onwards) call `registerTool` at module-import time so the
-// server.ts file itself stays small. The Map preserves insertion order,
-// which keeps ListTools output stable across runs.
-type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
-interface ToolEntry {
-  description: string;
-  inputSchema: Record<string, unknown>;
-  handler: ToolHandler;
-}
-const tools = new Map<string, ToolEntry>();
+import {
+  getToolEntry,
+  listToolDescriptors,
+  normaliseArgs,
+} from "./registry.js";
 
-export function registerTool(name: string, entry: ToolEntry): void {
-  if (tools.has(name)) {
-    // Re-registering the same name is almost always a typo or a
-    // missed renaming. Surface it loudly at startup time rather than
-    // silently overwriting the prior handler.
-    throw new Error(`mcp-github: tool '${name}' is already registered`);
+// Read the package version from the package.json next to the dist
+// tree at startup, so a single source of truth (package.json) drives
+// the version reported in MCP `initialize` responses. Reading from
+// disk once at boot avoids hardcoding a version string that drifts
+// every time `npm version` bumps the package.
+function readPackageVersion(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  // dist/server.js → ../package.json. Works both during local builds
+  // (the repo's package.json sits one level up from dist/) and after
+  // an `npm install` (npm places package.json at the package root,
+  // also one level up from the dist tree).
+  const pkgPath = resolve(here, "..", "package.json");
+  const raw = JSON.parse(readFileSync(pkgPath, "utf8")) as { version?: unknown };
+  if (typeof raw.version !== "string" || raw.version.length === 0) {
+    throw new Error(
+      `mcp-github: package.json at ${pkgPath} has no \`version\` string`,
+    );
   }
-  tools.set(name, entry);
-}
-
-// Read-only introspection over the registry. Two reasons it exists:
-//
-//   - Unit tests need an observable signal that registration actually
-//     persisted, beyond "the call did not throw". Without this they
-//     would pass even if `registerTool` were silently a no-op.
-//   - Future operational tooling (e.g. a `gh.list_tools` tool, or a
-//     CLI dump for debugging) needs the same view, and a single
-//     getter beats every caller poking at module internals.
-//
-// Insertion order is preserved (Map iteration order), so the result
-// also pins the order ListTools will hand back to MCP clients.
-export function getRegisteredToolNames(): string[] {
-  return Array.from(tools.keys());
+  return raw.version;
 }
 
 export async function startServer(): Promise<void> {
   const server = new Server(
     {
       name: "@ctxr/mcp-github",
-      version: "0.1.0",
+      version: readPackageVersion(),
     },
     {
       capabilities: {
@@ -65,26 +59,20 @@ export async function startServer(): Promise<void> {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: Array.from(tools.entries()).map(([name, t]) => ({
-      name,
-      description: t.description,
-      inputSchema: t.inputSchema,
-    })),
+    tools: listToolDescriptors(),
   }));
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
-    const entry = tools.get(name);
+    const entry = getToolEntry(name);
     if (!entry) {
       throw new Error(`mcp-github: unknown tool '${name}'`);
     }
     // Tool handlers are typed against `Record<string, unknown>`, but
     // the SDK's `request.params.arguments` is `unknown` — anything
     // serialisable as JSON can land here (array, primitive, null,
-    // even undefined). Coerce a missing/`null` `args` to `{}` and
-    // reject the rest with a clean protocol error so a non-object
-    // payload never reaches a handler that would crash on
-    // `args.someKey` lookup.
+    // even undefined). normaliseArgs coerces undefined/null to `{}`
+    // and rejects the rest with a clean protocol error.
     const handlerArgs = normaliseArgs(args, name);
     const result = await entry.handler(handlerArgs);
     return {
@@ -99,34 +87,6 @@ export async function startServer(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
-}
-
-// Validate the `arguments` payload from a CallTool request. The MCP
-// protocol allows it to be omitted (undefined) or null, both of which
-// we coerce to an empty object so handlers can rely on object syntax.
-// Anything else (array, string, number, etc.) is rejected with a
-// protocol error rather than silently passed through — a handler
-// reading `args.foo` off a string would throw a less actionable
-// `TypeError` later.
-//
-// Exported so the unit suite can pin the contract directly. Keeping
-// it on this module (rather than spinning out into a tiny utility
-// file) avoids inventing a new module that exists only to be
-// importable; the function only exists for `CallTool`'s benefit.
-export function normaliseArgs(
-  args: unknown,
-  toolName: string,
-): Record<string, unknown> {
-  if (args === undefined || args === null) return {};
-  if (
-    typeof args !== "object" ||
-    Array.isArray(args)
-  ) {
-    throw new Error(
-      `mcp-github: tool '${toolName}' expected an object 'arguments' payload, got ${typeof args === "object" ? "array" : typeof args}`,
-    );
-  }
-  return args as Record<string, unknown>;
 }
 
 // No direct-run guard here. The bin shim at `dist/server.mjs`

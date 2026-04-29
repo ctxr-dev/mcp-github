@@ -1,0 +1,16 @@
+query PRBotId($owner: String!, $name: String!, $login: String!) {
+  repository(owner: $owner, name: $name) {
+    suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 5, loginNames: $login) {
+      nodes {
+        __typename
+        ... on Bot {
+          id
+          login
+        }
+        ... on User {
+          login
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,397 @@
+// tests/unit/tools/pr/request_reviews.test.ts
+//
+// gh.pr_request_reviews — the marquee tool. The single-most-
+// important assertion in this file is that the tool calls the
+// GraphQL `pr/request_reviews` mutation with `botIds` populated.
+// REST `POST /repos/.../requested_reviewers` would silently
+// no-op for bots; if a future regression accidentally routed
+// bot logins through the REST path or dropped them from the
+// GraphQL input, every test here that asserts botIds presence
+// would fail.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+import { registerPRRequestReviewsTool } from "../../../../src/tools/pr/request_reviews.ts";
+import type { ToolEntry } from "../../../../src/registry.ts";
+import { stubGraphqlClient } from "./_fixtures.ts";
+
+function captureRegistration() {
+  let entry: ToolEntry | undefined;
+  const register = (name: string, e: ToolEntry) => {
+    if (name !== "gh.pr_request_reviews") throw new Error(`unexpected: ${name}`);
+    entry = e;
+  };
+  return {
+    register,
+    get entry(): ToolEntry {
+      if (!entry) throw new Error("not registered");
+      return entry;
+    },
+  };
+}
+
+// Canonical mutation response: a PR with one of each reviewer
+// type so the readback path is exercised end-to-end. Override
+// per-test by spreading.
+const sampleMutationResponse = {
+  requestReviews: {
+    pullRequest: {
+      reviewRequests: {
+        pageInfo: { hasNextPage: false },
+        nodes: [
+          {
+            requestedReviewer: {
+              __typename: "User" as const,
+              login: "alice",
+            },
+          },
+          {
+            requestedReviewer: {
+              __typename: "Bot" as const,
+              login: "copilot-pull-request-reviewer",
+            },
+          },
+          {
+            requestedReviewer: {
+              __typename: "Team" as const,
+              slug: "platform",
+            },
+          },
+        ],
+      },
+    },
+  },
+};
+
+test("gh.pr_request_reviews: routes bot logins through GraphQL botIds (the marquee path)", async () => {
+  // The whole point of MCP-6: bot reviewers MUST go through the
+  // GraphQL mutation's `botIds` input. The earlier path under
+  // `@github/mcp-server-github` used the REST endpoint, which
+  // silently no-ops for bots. Pin that:
+  //
+  //   - the resolved bot ID flows into mutation input as botIds
+  //   - userIds and teamIds stay empty when only bots are
+  //     supplied, so the call shape is unambiguous
+  let mutationInput: Record<string, unknown> | undefined;
+  const { graphql, calls } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_bot-id": (vars: Record<string, unknown>) => {
+      assert.equal(vars.login, "copilot-pull-request-reviewer");
+      return {
+        repository: {
+          suggestedActors: {
+            nodes: [
+              {
+                __typename: "Bot",
+                id: "BOT_copilot",
+                login: "copilot-pull-request-reviewer",
+              },
+            ],
+          },
+        },
+      };
+    },
+    "pr/request_reviews": (vars: Record<string, unknown>) => {
+      mutationInput = vars.input as Record<string, unknown>;
+      return sampleMutationResponse;
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    number: 42,
+    bot_logins: ["copilot-pull-request-reviewer"],
+  })) as { requested_bots: string[] };
+  assert.deepEqual(mutationInput, {
+    pullRequestId: "PR_target",
+    botIds: ["BOT_copilot"],
+    union: false,
+  });
+  assert.deepEqual(out.requested_bots, ["copilot-pull-request-reviewer"]);
+  // The mutation MUST be `pr/request_reviews`, not anything
+  // resembling a REST path. (The stub already enforces this by
+  // throwing on unmocked queries, but the assertion makes the
+  // intent visible in the test name.)
+  assert.ok(
+    calls.some((c) => c.queryName === "pr/request_reviews"),
+    "MUST call the GraphQL pr/request_reviews mutation, not REST",
+  );
+});
+
+test("gh.pr_request_reviews: resolves human + team + bot in parallel, splits the readback", async () => {
+  const { graphql, calls } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_user-id": (vars: Record<string, unknown>) => {
+      assert.equal(vars.login, "alice");
+      return { user: { id: "U_alice", __typename: "User" } };
+    },
+    "pr/_team-id": (vars: Record<string, unknown>) => {
+      assert.equal(vars.org, "owner");
+      assert.equal(vars.slug, "platform");
+      return { organization: { team: { id: "T_platform" } } };
+    },
+    "pr/_bot-id": () => ({
+      repository: {
+        suggestedActors: {
+          nodes: [
+            {
+              __typename: "Bot",
+              id: "BOT_copilot",
+              login: "copilot-pull-request-reviewer",
+            },
+          ],
+        },
+      },
+    }),
+    "pr/request_reviews": (vars: Record<string, unknown>) => {
+      const input = vars.input as Record<string, unknown>;
+      assert.deepEqual(input.userIds, ["U_alice"]);
+      assert.deepEqual(input.teamIds, ["T_platform"]);
+      assert.deepEqual(input.botIds, ["BOT_copilot"]);
+      return sampleMutationResponse;
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    number: 42,
+    user_logins: ["alice"],
+    team_slugs: ["platform"],
+    bot_logins: ["copilot-pull-request-reviewer"],
+  })) as {
+    requested_reviewers: string[];
+    requested_teams: string[];
+    requested_bots: string[];
+  };
+  assert.deepEqual(out, {
+    requested_reviewers: ["alice"],
+    requested_teams: ["platform"],
+    requested_bots: ["copilot-pull-request-reviewer"],
+  });
+  // Resolution order is non-deterministic (Promise.all) but
+  // every required query must have run.
+  const queries = calls.map((c) => c.queryName).sort();
+  assert.deepEqual(queries, [
+    "pr/_bot-id",
+    "pr/_pr-lookup",
+    "pr/_team-id",
+    "pr/_user-id",
+    "pr/request_reviews",
+  ]);
+});
+
+test("gh.pr_request_reviews: rejects a human login passed in bot_logins", async () => {
+  // Crucial routing check. A caller who puts `octocat` in
+  // bot_logins must see a clear "use user_logins" error rather
+  // than a confusing "Bot not found" or — worse — a silent
+  // no-op once the request hits the mutation.
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_bot-id": () => ({
+      repository: {
+        suggestedActors: {
+          nodes: [
+            { __typename: "User", login: "octocat" },
+          ],
+        },
+      },
+    }),
+    "pr/request_reviews": () => {
+      throw new Error("mutation must NOT run when bot resolution fails");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 42,
+      bot_logins: ["octocat"],
+    }),
+    /'octocat' is a User, not a Bot — use user_logins/,
+  );
+});
+
+test("gh.pr_request_reviews: rejects a bot login passed in user_logins", async () => {
+  // Symmetric routing check. user(login) errors out for bots
+  // but we also defensively check __typename in case GitHub's
+  // API ever returns null instead of erroring.
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_user-id": () => ({ user: null }),
+    "pr/request_reviews": () => {
+      throw new Error("mutation must NOT run when user resolution fails");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 42,
+      user_logins: ["dependabot"],
+    }),
+    /user 'dependabot' not found/,
+  );
+});
+
+test("gh.pr_request_reviews: union: true forwards to mutation input", async () => {
+  let mutationInput: Record<string, unknown> | undefined;
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_user-id": () => ({ user: { id: "U_alice", __typename: "User" } }),
+    "pr/request_reviews": (vars: Record<string, unknown>) => {
+      mutationInput = vars.input as Record<string, unknown>;
+      return sampleMutationResponse;
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await reg.entry.handler({
+    repo: "owner/repo",
+    number: 42,
+    user_logins: ["alice"],
+    union: true,
+  });
+  assert.equal(mutationInput?.union, true);
+});
+
+test("gh.pr_request_reviews: union defaults to false (replace existing reviewers)", async () => {
+  let mutationInput: Record<string, unknown> | undefined;
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_user-id": () => ({ user: { id: "U_alice", __typename: "User" } }),
+    "pr/request_reviews": (vars: Record<string, unknown>) => {
+      mutationInput = vars.input as Record<string, unknown>;
+      return sampleMutationResponse;
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await reg.entry.handler({
+    repo: "owner/repo",
+    number: 42,
+    user_logins: ["alice"],
+  });
+  assert.equal(mutationInput?.union, false);
+});
+
+test("gh.pr_request_reviews: refuses a no-op call where every reviewer slot is empty", async () => {
+  // Without this guard, `union: false` + no inputs would
+  // CLEAR the existing reviewers — almost certainly not what
+  // the caller meant if they reached this tool empty-handed.
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": () => {
+      throw new Error("must not run when input is empty");
+    },
+    "pr/request_reviews": () => {
+      throw new Error("must not run when input is empty");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", number: 42 }),
+    /at least one of user_logins, team_logins, bot_logins must be non-empty/,
+  );
+});
+
+test("gh.pr_request_reviews: skips empty arrays in the mutation input", async () => {
+  // GraphQL's RequestReviewsInput treats present-but-empty
+  // arrays as "clear that category". When the caller only
+  // supplies bots, userIds and teamIds must be ABSENT (not
+  // present and empty) so the mutation doesn't accidentally
+  // wipe pre-existing human or team reviewers.
+  let mutationInput: Record<string, unknown> | undefined;
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_bot-id": () => ({
+      repository: {
+        suggestedActors: {
+          nodes: [
+            {
+              __typename: "Bot",
+              id: "BOT_copilot",
+              login: "copilot",
+            },
+          ],
+        },
+      },
+    }),
+    "pr/request_reviews": (vars: Record<string, unknown>) => {
+      mutationInput = vars.input as Record<string, unknown>;
+      return sampleMutationResponse;
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await reg.entry.handler({
+    repo: "owner/repo",
+    number: 42,
+    bot_logins: ["copilot"],
+  });
+  assert.equal("userIds" in (mutationInput ?? {}), false);
+  assert.equal("teamIds" in (mutationInput ?? {}), false);
+  assert.deepEqual(mutationInput?.botIds, ["BOT_copilot"]);
+});
+
+test("gh.pr_request_reviews: surfaces 'team not found' clearly when slug doesn't exist", async () => {
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_team-id": () => ({ organization: { team: null } }),
+    "pr/request_reviews": () => {
+      throw new Error("must not run");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 42,
+      team_slugs: ["nonexistent"],
+    }),
+    /team 'owner\/nonexistent' not found/,
+  );
+});
+
+test("gh.pr_request_reviews: surfaces clear error when team_slugs are passed on a user-owned repo", async () => {
+  // GraphQL `organization(login: $userLogin)` returns null
+  // when the login is a User, not an Org. Translate that to a
+  // helpful "team_slugs not applicable" message so the caller
+  // doesn't think the team was simply missing.
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_team-id": () => ({ organization: null }),
+    "pr/request_reviews": () => {
+      throw new Error("must not run");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "person/repo",
+      number: 42,
+      team_slugs: ["platform"],
+    }),
+    /team_slugs is not applicable/,
+  );
+});
+
+test("gh.pr_request_reviews: rejects malformed repo slug at the input boundary", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "no-slash",
+      number: 42,
+      user_logins: ["alice"],
+    }),
+    /gh\.pr_request_reviews input/,
+  );
+});

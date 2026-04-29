@@ -46,6 +46,7 @@ const EXPECTED_TOOLS = [
   "gh.pr_edit",
   "gh.pr_comment",
   "gh.pr_merge",
+  "gh.pr_request_reviews",
 ];
 
 function frame(payload) {

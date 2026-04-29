@@ -1,0 +1,6 @@
+query PRUserId($login: String!) {
+  user(login: $login) {
+    id
+    __typename
+  }
+}

@@ -249,7 +249,7 @@ test("gh.pr_request_reviews: maps GraphqlError from user(login) onto a routing-h
       number: 42,
       user_logins: ["dependabot"],
     }),
-    /'dependabot' could not be resolved as a User .* use bot_logins/,
+    /'dependabot' could not be resolved as a User .* if this is a bot account, use bot_logins.* otherwise verify the spelling/,
   );
 });
 
@@ -394,6 +394,29 @@ test("gh.pr_request_reviews: surfaces 'team not found' clearly when slug doesn't
       team_slugs: ["nonexistent"],
     }),
     /team 'owner\/nonexistent' not found/,
+  );
+});
+
+test("gh.pr_request_reviews: rejects team_slugs that look like `org/slug`", async () => {
+  // Common mis-passing — caller types the team's full path
+  // when the schema wants just the slug. Catching it at the
+  // boundary produces a schema-validation error pointing at
+  // the offending instance path, instead of a confusing
+  // "team 'owner/org/slug' not found" later.
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": () => {
+      throw new Error("must not run when input is malformed");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 42,
+      team_slugs: ["org/platform"],
+    }),
+    /gh\.pr_request_reviews input/,
   );
 });
 

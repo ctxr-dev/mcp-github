@@ -55,11 +55,17 @@ const inputSchema = {
     },
     team_slugs: {
       type: "array",
-      items: { type: "string", minLength: 1 },
+      // Disallow forward slashes at the schema boundary so an
+      // `org/slug` form (a common mis-passing) fails fast with
+      // a schema-validation error rather than producing a
+      // confusing "team 'owner/org/slug' not found" later. The
+      // org is derived from the repo's owner; slugs are bare.
+      items: { type: "string", minLength: 1, pattern: "^[^/]+$" },
       description:
         "Team slugs (slug only, no `org/` prefix — the org is " +
         "derived from the repo's owner). Only meaningful on " +
-        "org-owned repos.",
+        "org-owned repos. A slug containing `/` is rejected at " +
+        "the input boundary.",
     },
     bot_logins: {
       type: "array",
@@ -263,10 +269,18 @@ async function resolveUserIds(
           const upstream = err.errors
             .map((e) => e.message ?? "unknown")
             .join("; ");
-          const looksLikeBot = /could not resolve to a user/i.test(upstream);
+          // GitHub returns the same "Could not resolve to a User"
+          // message for both bot logins AND misspelled / deleted
+          // humans, so we can't tell which one happened from the
+          // upstream text alone. Surface BOTH possibilities in
+          // the rethrow rather than asserting one — the caller
+          // knows which login they intended and can pick the
+          // correct fix.
+          const isResolutionFailure =
+            /could not resolve to a user/i.test(upstream);
           throw new Error(
-            looksLikeBot
-              ? `mcp-github: gh.pr_request_reviews: '${login}' could not be resolved as a User (upstream: ${upstream}); use bot_logins for bot accounts`
+            isResolutionFailure
+              ? `mcp-github: gh.pr_request_reviews: '${login}' could not be resolved as a User (upstream: ${upstream}); if this is a bot account, use bot_logins; otherwise verify the spelling and that the account still exists`
               : `mcp-github: gh.pr_request_reviews: failed to resolve user '${login}' (upstream: ${upstream})`,
           );
         }

@@ -97,10 +97,24 @@ export function loadAllQueries(): Promise<ReadonlyMap<string, string>> {
 // Internal: shared-promise initializer. Concurrent callers all get
 // the same promise; the underlying `populateCache()` runs at most
 // once per cache lifetime.
+//
+// On rejection (e.g. a transient FS error reading a query file) we
+// clear `initPromise` so the next caller can retry. Without this
+// reset, a single transient failure would cache the rejected
+// promise and poison every subsequent loadQuery() call until the
+// process restarts.
 function ensureInitialized(): Promise<ReadonlyMap<string, string>> {
   if (initPromise) return initPromise;
-  initPromise = populateCache();
-  return initPromise;
+  const fresh: Promise<ReadonlyMap<string, string>> = populateCache().catch((err) => {
+    // Identity check guards against `_resetQueryCache()` (or another
+    // failed caller) clearing/replacing the slot before we observe
+    // our own rejection. Only blank the slot if it still holds the
+    // exact promise we just attempted.
+    if (initPromise === fresh) initPromise = null;
+    throw err;
+  });
+  initPromise = fresh;
+  return fresh;
 }
 
 async function populateCache(): Promise<ReadonlyMap<string, string>> {

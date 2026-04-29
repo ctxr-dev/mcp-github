@@ -3,9 +3,15 @@
 // `gh.pr_edit` — updates fields on an existing PR. Two-step:
 // look up the PR's GraphQL node ID, then run UpdatePullRequest
 // with only the fields that were supplied. Omitting a field
-// leaves it unchanged; passing `null` is rejected by the input
-// schema (we don't accept it as a "clear" sentinel because the
-// underlying mutation has no concept of clearing title/body).
+// leaves it unchanged. Sentinels:
+//
+//   - title cannot be cleared (the schema requires minLength: 1
+//     on the way in, and GitHub rejects empty-title PRs anyway).
+//   - body CAN be cleared by passing the empty string `""` —
+//     UpdatePullRequest accepts that and stores no body.
+//   - `null` is intentionally rejected at the schema level for
+//     both fields; if you want to clear the body, pass `""`
+//     explicitly so the intent is unambiguous in the call shape.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";

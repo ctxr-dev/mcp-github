@@ -116,16 +116,13 @@ export function registerPRListTool(
       const states = mapStateFilter(args.state);
       // Strip an optional `owner:` prefix on `head` so the gh-CLI
       // shape (`--head owner:branch`) keeps working. GraphQL's
-      // `headRefName` filter is the bare branch name. Validate
-      // post-strip too: `head: "owner:"` and `head: ":branch"`
-      // (in the second the prefix is empty) would otherwise send
-      // an empty filter that matches nothing.
-      const head = args.head ? stripOwnerPrefix(args.head) : null;
-      if (head !== null && head.length === 0) {
-        throw new Error(
-          `mcp-github: gh.pr_list input: head must contain a branch name after the optional 'owner:' prefix, got '${args.head}'`,
-        );
-      }
+      // `headRefName` filter is the bare branch name. The
+      // helper rejects `":branch"` and `"owner:"` (and any
+      // single-colon shape with an empty half) before stripping,
+      // so the GraphQL call never sees an empty filter.
+      const head = args.head
+        ? stripOwnerPrefix(args.head, "gh.pr_list input")
+        : null;
       const data = await graphql<Response>("pr/list", {
         owner: coords.owner,
         name: coords.name,
@@ -175,9 +172,25 @@ function mapStateFilter(
 // `Repository.pullRequests.headRefName` filter is the branch
 // name only. We strip rather than reject so the gh-CLI shape
 // keeps working without the caller knowing about this
-// boundary. A name with no colon passes through unchanged.
-function stripOwnerPrefix(head: string): string {
+// boundary.
+//
+// We reject malformed shapes BEFORE stripping so the caller sees
+// the bad input rather than a "no results" mystery later:
+//
+//   - leading colon (`":branch"`) → empty owner; almost
+//     certainly a typo / mis-concatenation upstream, not the
+//     intent.
+//   - trailing colon (`"owner:"`) → empty branch; same.
+//   - no colon at all → unchanged.
+//
+// Returns the bare branch name on success; throws otherwise.
+function stripOwnerPrefix(head: string, where: string): string {
   const colon = head.indexOf(":");
   if (colon === -1) return head;
+  if (colon === 0 || colon === head.length - 1) {
+    throw new Error(
+      `mcp-github: ${where}: head '${head}' is malformed; expected 'owner:branch' with both halves non-empty`,
+    );
+  }
   return head.slice(colon + 1);
 }

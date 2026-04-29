@@ -113,11 +113,10 @@ test("gh.pr_list: strips `owner:` prefix from head before forwarding to GraphQL"
   assert.equal(calls[0]?.vars.headRefName, "feat/x");
 });
 
-test("gh.pr_list: rejects head that strips down to an empty branch name", async () => {
-  // Inputs like `head: "owner:"` or `head: ":branch"` would
-  // either become `""` (the first case) or have an empty owner
-  // and a real branch (the second). Both are user errors that
-  // would silently send nothing useful to GraphQL — fail loudly.
+test("gh.pr_list: rejects head with empty branch (`owner:`)", async () => {
+  // A trailing colon means an empty branch name. Without explicit
+  // rejection the strip would leave \`""\` and silently match
+  // nothing on GraphQL.
   const { graphql } = stubGraphqlClient({
     "pr/list": () => {
       throw new Error("must not run when head is malformed");
@@ -127,7 +126,25 @@ test("gh.pr_list: rejects head that strips down to an empty branch name", async 
   registerPRListTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ repo: "owner/repo", head: "owner:" }),
-    /head must contain a branch name/,
+    /head 'owner:' is malformed/,
+  );
+});
+
+test("gh.pr_list: rejects head with empty owner (`:branch`)", async () => {
+  // Symmetric case: a leading colon means an empty owner. The
+  // strip would happily return "branch" as if `:branch` were
+  // valid, silently broadening the filter on a typo. Reject
+  // explicitly so the caller sees the malformed input.
+  const { graphql } = stubGraphqlClient({
+    "pr/list": () => {
+      throw new Error("must not run when head is malformed");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRListTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", head: ":branch" }),
+    /head ':branch' is malformed/,
   );
 });
 

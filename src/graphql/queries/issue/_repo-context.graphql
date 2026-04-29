@@ -1,0 +1,17 @@
+query RepoContext($owner: String!, $name: String!) {
+  repository(owner: $owner, name: $name) {
+    id
+    labels(first: 100) {
+      nodes {
+        id
+        name
+      }
+    }
+    assignableUsers(first: 100) {
+      nodes {
+        id
+        login
+      }
+    }
+  }
+}

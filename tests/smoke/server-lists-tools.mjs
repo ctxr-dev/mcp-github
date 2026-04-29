@@ -25,7 +25,16 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER = resolve(__dirname, "..", "..", "dist", "server.mjs");
 
-const EXPECTED_TOOLS = ["gh.test_connection"];
+const EXPECTED_TOOLS = [
+  "gh.test_connection",
+  "gh.issue_create",
+  "gh.issue_view",
+  "gh.issue_list",
+  "gh.issue_edit",
+  "gh.issue_close",
+  "gh.issue_comment",
+  "gh.issue_search",
+];
 
 function frame(payload) {
   // Newline-delimited JSON-RPC. JSON.stringify cannot emit a literal

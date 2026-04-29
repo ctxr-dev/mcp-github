@@ -25,12 +25,19 @@
 // script) means the wrapper + chmod treatment is testable and the
 // build command stays a single tsc call.
 
-import { writeFileSync, chmodSync } from "node:fs";
+import {
+  writeFileSync,
+  chmodSync,
+  cpSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const distRoot = resolve(__dirname, "..", "dist");
+const repoRoot = resolve(__dirname, "..");
+const distRoot = resolve(repoRoot, "dist");
 const mjsPath = resolve(distRoot, "server.mjs");
 
 // The direct-run guard compares the canonical filesystem path of
@@ -73,5 +80,25 @@ writeFileSync(mjsPath, SHIM);
 // execute it directly on POSIX. Windows ignores the bit; npm rewrites
 // the bin shim to a .cmd file at install time anyway.
 chmodSync(mjsPath, 0o755);
+
+// Copy the GraphQL query files into the dist tree so the runtime
+// loader (src/graphql/queries.ts) can resolve them next to the
+// compiled `dist/graphql/client.js`. tsc itself only emits .js/.d.ts
+// from `src/**/*.ts` and does not see `.graphql` text files; without
+// this copy step the production build would ship a package whose
+// graphql client cannot find any of its queries.
+//
+// We `rmSync` the destination tree before copying so deletions in
+// `src/graphql/queries/**` propagate. cpSync alone is union-merge: a
+// query file removed from `src` would otherwise linger in `dist`
+// across incremental builds and remain discoverable by
+// `loadAllQueries()` in production. tsc never wipes `dist/`, so this
+// is the only place that catches the deletion.
+const queriesSrc = resolve(repoRoot, "src", "graphql", "queries");
+const queriesDst = resolve(distRoot, "graphql", "queries");
+rmSync(queriesDst, { recursive: true, force: true });
+if (existsSync(queriesSrc)) {
+  cpSync(queriesSrc, queriesDst, { recursive: true });
+}
 
 process.stdout.write(`mcp-github: dist/server.mjs ready\n`);

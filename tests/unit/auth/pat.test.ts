@@ -49,6 +49,19 @@ test("resolvePat: precedence — GITHUB_TOKEN beats GH_TOKEN beats GITHUB_PERSON
   assert.equal(resolvePat(env), "first");
 });
 
+test("resolvePat: skips whitespace-only values and trims real ones", () => {
+  // A whitespace-only env value is almost always a misconfigured CI
+  // secret; accepting it would surface as a confusing 401 from
+  // GitHub. We treat it as unset and fall through to the next slot.
+  // We also trim padding from real values so tokens copy-pasted with
+  // a trailing newline don't fail auth.
+  const env = syntheticEnv({
+    GITHUB_TOKEN: "   ",
+    GH_TOKEN: "  ghp_padded \n",
+  });
+  assert.equal(resolvePat(env), "ghp_padded");
+});
+
 test("resolvePat: skips empty-string values (treats them as unset)", () => {
   // CI runners frequently set GITHUB_TOKEN="" when no token is configured,
   // which would silently mask the GH_TOKEN fallback if we only checked

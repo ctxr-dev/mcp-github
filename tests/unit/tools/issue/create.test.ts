@@ -170,7 +170,7 @@ test("gh.issue_create: throws when the repository is not found", async () => {
   registerIssueCreateTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ repo: "owner/repo", title: "x" }),
-    /repository 'owner\/repo' not found/,
+    /gh\.issue_create: repository 'owner\/repo' not found/,
   );
 });
 

@@ -76,7 +76,10 @@ test("gh.issue_list: client-side `assignee` filter drops non-matching items", as
     {
       ...sampleRawIssue,
       number: 2,
-      assignees: { nodes: [{ login: "carol" }] },
+      assignees: {
+        pageInfo: { hasNextPage: false },
+        nodes: [{ login: "carol" }],
+      },
     },
   ];
   const { graphql } = stubGraphqlClient({

@@ -7,12 +7,18 @@ mutation IssueCreate($input: CreateIssueInput!) {
       title
       state
       body
-      labels(first: 50) {
+      labels(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
         nodes {
           name
         }
       }
-      assignees(first: 20) {
+      assignees(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
         nodes {
           login
         }

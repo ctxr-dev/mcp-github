@@ -94,7 +94,7 @@ export function registerIssueEditTool(
       let labelIds: string[] | undefined;
       let assigneeIds: string[] | undefined;
       if (args.labels !== undefined || args.assignees !== undefined) {
-        const context = await loadRepoContext(graphql, coords);
+        const context = await loadRepoContext(graphql, coords, "gh.issue_edit");
         if (args.labels !== undefined) {
           labelIds = resolveLabelIds(context, args.labels, "gh.issue_edit");
         }

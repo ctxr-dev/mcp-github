@@ -40,6 +40,7 @@ const inputSchema = {
     },
     after: {
       type: "string",
+      minLength: 1,
       description: "Opaque cursor from a previous page's endCursor.",
     },
   },

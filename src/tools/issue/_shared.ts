@@ -60,6 +60,7 @@ interface RepoContextResponse {
 export async function loadRepoContext(
   graphql: GraphqlClient,
   coords: RepoCoords,
+  where: string,
 ): Promise<RepoContext> {
   const data = await graphql<RepoContextResponse>("issue/_repo-context", {
     owner: coords.owner,
@@ -67,26 +68,28 @@ export async function loadRepoContext(
   });
   if (!data.repository) {
     throw new Error(
-      `mcp-github: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
+      `mcp-github: ${where}: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
     );
   }
   // Detect truncation. With `first: 100` on each connection, a
   // repo with more than 100 labels or assignable users would
   // silently produce false "unknown label" / "unknown login"
   // errors for valid inputs that happened to live on page 2+. v0.1
-  // doesn't paginate; we throw a clear, actionable error instead
-  // so the caller sees the real cause and can pre-resolve IDs
-  // externally until full pagination lands in a later PR.
+  // doesn't paginate; we throw a clear, actionable error pointing
+  // the caller at the only workarounds the current tool surface
+  // supports (omit the field, or talk to GitHub directly).
   if (data.repository.labels.pageInfo.hasNextPage) {
     throw new Error(
-      `mcp-github: repository '${coords.owner}/${coords.name}' has more than 100 labels; ` +
-        `name-based resolution is not supported on this repo at v0.1. Use label IDs directly or paginate externally.`,
+      `mcp-github: ${where}: repository '${coords.owner}/${coords.name}' has more than 100 labels; ` +
+        `name-based label resolution is not supported on this repo at v0.1. ` +
+        `Omit 'labels' for now, or use the GitHub API / another client that can paginate labels.`,
     );
   }
   if (data.repository.assignableUsers.pageInfo.hasNextPage) {
     throw new Error(
-      `mcp-github: repository '${coords.owner}/${coords.name}' has more than 100 assignable users; ` +
-        `login-based resolution is not supported on this repo at v0.1. Use user IDs directly or paginate externally.`,
+      `mcp-github: ${where}: repository '${coords.owner}/${coords.name}' has more than 100 assignable users; ` +
+        `login-based assignee resolution is not supported on this repo at v0.1. ` +
+        `Omit 'assignees' for now, or paginate assignable users externally to find the intended login and retry.`,
     );
   }
   // Build name→id maps once so the per-label / per-assignee resolve
@@ -254,7 +257,15 @@ export const issueSummarySchema = {
 
 // Shape returned by GraphQL for an Issue: a superset of what we
 // expose. Tools use this to type the response, then map to
-// `IssueSummary` before validating.
+// `IssueSummary` before validating. The label/assignee connections
+// carry `pageInfo.hasNextPage` so `summariseIssue` can detect when
+// GitHub returned a truncated set and surface a warning rather
+// than silently emit a partial array.
+interface PaginatedNodes<T> {
+  pageInfo: { hasNextPage: boolean };
+  nodes: T[];
+}
+
 export interface RawIssue {
   number: number;
   url: string;
@@ -262,15 +273,35 @@ export interface RawIssue {
   title: string;
   state: "OPEN" | "CLOSED";
   body: string | null;
-  labels: { nodes: Array<{ name: string }> };
-  assignees: { nodes: Array<{ login: string }> };
+  labels: PaginatedNodes<{ name: string }>;
+  assignees: PaginatedNodes<{ login: string }>;
   author: { login: string } | null;
   createdAt: string;
   updatedAt: string;
   closedAt: string | null;
 }
 
-export function summariseIssue(raw: RawIssue): IssueSummary {
+// Issues with > 100 labels or > 100 assignees are vanishingly rare
+// in practice. Rather than fail or paginate, we warn once per
+// truncation event so observability tools (and test runs) see
+// the signal, without breaking otherwise-valid call paths. The
+// warn function is parameterised primarily so unit tests can
+// capture it; default writes to stderr.
+export function summariseIssue(
+  raw: RawIssue,
+  warn: (msg: string) => void = (msg) =>
+    process.stderr.write(`${msg}\n`),
+): IssueSummary {
+  if (raw.labels.pageInfo.hasNextPage) {
+    warn(
+      `mcp-github: issue ${raw.url} has more than 100 labels; output is truncated to the first page.`,
+    );
+  }
+  if (raw.assignees.pageInfo.hasNextPage) {
+    warn(
+      `mcp-github: issue ${raw.url} has more than 100 assignees; output is truncated to the first page.`,
+    );
+  }
   return {
     number: raw.number,
     url: raw.url,

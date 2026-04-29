@@ -73,7 +73,7 @@ export function registerIssueCreateTool(
     handler: async (raw) => {
       const args = validate<Input>(inputSchema, raw, "gh.issue_create input");
       const coords = parseRepoSlug(args.repo, "gh.issue_create input");
-      const context = await loadRepoContext(graphql, coords);
+      const context = await loadRepoContext(graphql, coords, "gh.issue_create");
       const labelIds = args.labels
         ? resolveLabelIds(context, args.labels, "gh.issue_create")
         : undefined;

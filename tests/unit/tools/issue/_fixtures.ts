@@ -50,8 +50,14 @@ export const sampleRawIssue = {
   title: "Sample title",
   state: "OPEN" as const,
   body: "Sample body",
-  labels: { nodes: [{ name: "bug" }, { name: "p1" }] },
-  assignees: { nodes: [{ login: "alice" }] },
+  labels: {
+    pageInfo: { hasNextPage: false },
+    nodes: [{ name: "bug" }, { name: "p1" }],
+  },
+  assignees: {
+    pageInfo: { hasNextPage: false },
+    nodes: [{ login: "alice" }],
+  },
   author: { login: "bob" },
   createdAt: "2026-04-01T00:00:00Z",
   updatedAt: "2026-04-02T00:00:00Z",

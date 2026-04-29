@@ -127,10 +127,16 @@ function isSecondaryRateLimit(err: RequestError): boolean {
 function readRetryAfter(err: RequestError): number | undefined {
   const headers = err.response?.headers as Record<string, unknown> | undefined;
   const raw = headers?.["retry-after"];
-  if (typeof raw === "string") {
-    const n = Number(raw);
-    return Number.isFinite(n) ? n : undefined;
-  }
-  if (typeof raw === "number") return raw;
+  // Keep the parsed value only if it's finite AND non-negative. The
+  // numeric branch was previously trusted as-is, which let `NaN` or
+  // `Infinity` bypass the call-site `?? 60` fallback and produce
+  // an AbuseDetectionError with an unusable retryAfterSeconds value.
+  const n =
+    typeof raw === "string"
+      ? Number(raw)
+      : typeof raw === "number"
+        ? raw
+        : NaN;
+  if (Number.isFinite(n) && n >= 0) return n;
   return undefined;
 }

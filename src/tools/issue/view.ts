@@ -58,10 +58,18 @@ export function registerIssueViewTool(
         name: coords.name,
         number: args.number,
       });
-      const issue = data.repository?.issue;
+      // Distinguish "repo missing / no access" from "issue missing"
+      // so a typo in the slug doesn't surface as a misleading
+      // "issue not found" message that points at the wrong axis.
+      if (!data.repository) {
+        throw new Error(
+          `mcp-github: gh.issue_view: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
+        );
+      }
+      const issue = data.repository.issue;
       if (!issue) {
         throw new Error(
-          `mcp-github: gh.issue_view: ${coords.owner}/${coords.name}#${args.number} not found`,
+          `mcp-github: gh.issue_view: issue ${coords.owner}/${coords.name}#${args.number} not found`,
         );
       }
       const summary = summariseIssue(issue);

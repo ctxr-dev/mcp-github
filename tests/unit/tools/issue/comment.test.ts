@@ -66,7 +66,7 @@ test("gh.issue_comment: throws when the issue cannot be found", async () => {
   registerIssueCommentTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ repo: "owner/repo", number: 99, body: "x" }),
-    /owner\/repo#99 not found/,
+    /issue owner\/repo#99 not found/,
   );
 });
 

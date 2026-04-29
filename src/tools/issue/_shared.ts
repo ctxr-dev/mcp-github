@@ -149,7 +149,16 @@ export async function lookupIssueNodeId(
     name: coords.name,
     number,
   });
-  const issueId = data.repository?.issue?.id;
+  // Distinguish "repo missing / no access" from "issue missing".
+  // Collapsing the two confused operators staring at typos in the
+  // repo slug — they'd see "issue X not found" and start hunting
+  // for the issue when the real problem was the repo.
+  if (!data.repository) {
+    throw new Error(
+      `mcp-github: ${where}: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
+    );
+  }
+  const issueId = data.repository.issue?.id;
   if (typeof issueId !== "string") {
     throw new Error(
       `mcp-github: ${where}: issue ${coords.owner}/${coords.name}#${number} not found`,

@@ -16,13 +16,22 @@
 // compiled lazily and cached by reference.
 
 import Ajv, { type ErrorObject, type ValidateFunction } from "ajv";
+import addFormats from "ajv-formats";
 
 // One Ajv instance shared across the process. `strict: false` because
 // we use a few non-standard keywords for documentation (`example`,
 // `description` on object fields) that ajv would otherwise warn
 // about. `allErrors: true` collects every violation so the structured
 // error message can list all of them, not just the first one.
+//
+// `addFormats` registers the standard JSON-Schema formats
+// (`date-time`, `email`, `uri`, etc.). Without this call ajv treats
+// unknown formats as no-ops under `strict: false`, so a schema
+// declaring `format: "date-time"` would silently accept any string.
+// We need real format enforcement on inputs like `gh.issue_list`'s
+// `since` field.
 const ajv = new Ajv({ strict: false, allErrors: true });
+addFormats(ajv);
 
 // Cache compiled validators by schema-object identity. Schema objects
 // are usually module-level constants in the tool files, so the

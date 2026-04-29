@@ -56,7 +56,7 @@ test("gh.issue_view: maps the GraphQL response onto the canonical IssueSummary",
   });
 });
 
-test("gh.issue_view: throws a structured error when the issue is missing", async () => {
+test("gh.issue_view: throws an issue-not-found error when the repo exists but the issue doesn't", async () => {
   const { graphql } = stubGraphqlClient({
     "issue/view": { repository: { issue: null } },
   });
@@ -64,7 +64,22 @@ test("gh.issue_view: throws a structured error when the issue is missing", async
   registerIssueViewTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ repo: "owner/repo", number: 99 }),
-    /owner\/repo#99 not found/,
+    /issue owner\/repo#99 not found/,
+  );
+});
+
+test("gh.issue_view: throws a repo-not-found error when the repository is null", async () => {
+  // The repo-vs-issue distinction matters for the operator: a typo
+  // in the slug should not surface as "issue 99 not found", which
+  // would point them at the wrong axis. Pin the message text.
+  const { graphql } = stubGraphqlClient({
+    "issue/view": { repository: null },
+  });
+  const reg = captureRegistration();
+  registerIssueViewTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", number: 99 }),
+    /repository 'owner\/repo' not found or token lacks read access/,
   );
 });
 

@@ -112,6 +112,6 @@ test("gh.issue_edit: throws when the issue cannot be found", async () => {
   registerIssueEditTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ repo: "owner/repo", number: 99 }),
-    /owner\/repo#99 not found/,
+    /issue owner\/repo#99 not found/,
   );
 });

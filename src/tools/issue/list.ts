@@ -40,11 +40,12 @@ const inputSchema = {
     },
     labels: {
       type: "array",
-      items: { type: "string" },
+      items: { type: "string", minLength: 1 },
       description: "Filter to issues that have ALL of these labels.",
     },
     assignee: {
       type: "string",
+      minLength: 1,
       description: "Filter to issues assigned to this login.",
     },
     since: {

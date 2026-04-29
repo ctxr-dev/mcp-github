@@ -1,0 +1,11 @@
+mutation LabelEdit($input: UpdateLabelInput!) {
+  updateLabel(input: $input) {
+    label {
+      id
+      name
+      color
+      description
+      url
+    }
+  }
+}

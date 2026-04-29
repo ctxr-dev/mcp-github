@@ -69,9 +69,11 @@ test("gh.pr_comment: with in_reply_to, skips the PR lookup and uses the reply mu
   });
   const reg = captureRegistration();
   registerPRCommentTool(reg.register, graphql);
+  // Thread-reply shape: in_reply_to + body only, no repo/number.
+  // The schema's oneOf disallows the four-field combo so callers
+  // can't accidentally mismatch the thread's parent PR with a
+  // wrong (repo, number) pair that would silently be ignored.
   const out = await reg.entry.handler({
-    repo: "owner/repo",
-    number: 7,
     body: "thread reply",
     in_reply_to: "PRRT_thread",
   });
@@ -80,6 +82,39 @@ test("gh.pr_comment: with in_reply_to, skips the PR lookup and uses the reply mu
   assert.deepEqual(
     calls.map((c) => c.queryName),
     ["pr/comment-reply"],
+  );
+});
+
+test("gh.pr_comment: rejects mixing in_reply_to with repo/number", async () => {
+  const { graphql } = stubGraphqlClient({
+    "pr/comment-reply": () => {
+      throw new Error("must not run when input shape is invalid");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRCommentTool(reg.register, graphql);
+  // Schema's oneOf must reject this combo. The previous shape
+  // happily ignored repo + number on the thread-reply path,
+  // which masked thread-ID-derivation bugs in the caller.
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 7,
+      body: "x",
+      in_reply_to: "PRRT_thread",
+    }),
+    /gh\.pr_comment input/,
+  );
+});
+
+test("gh.pr_comment: rejects bare body without repo/number or in_reply_to", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRCommentTool(reg.register, graphql);
+  // body alone matches neither oneOf branch — schema rejects.
+  await assert.rejects(
+    reg.entry.handler({ body: "x" }),
+    /gh\.pr_comment input/,
   );
 });
 

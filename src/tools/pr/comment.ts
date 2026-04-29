@@ -26,9 +26,14 @@ import {
   repoSlugSchema,
 } from "./_shared.js";
 
+// Two valid call shapes; `oneOf` enforces the divide so callers
+// can't pass `repo + number + in_reply_to` together (they'd
+// previously silently flow down the thread-reply path with the
+// repo + number pair ignored, which masks bugs in the caller's
+// thread-ID derivation).
 const inputSchema = {
   type: "object",
-  required: ["repo", "number", "body"],
+  required: ["body"],
   properties: {
     repo: repoSlugSchema,
     number: { type: "integer", minimum: 1 },
@@ -39,14 +44,31 @@ const inputSchema = {
       description:
         "Review-thread node ID (PullRequestReviewThread). When " +
         "supplied, the comment posts as a thread reply rather " +
-        "than an issue-level PR comment. NOTE: v0.1 does not yet " +
-        "expose thread IDs in any of this server's outputs " +
-        "(PRSummary carries only review_comments_count); the " +
-        "caller must source the ID from GitHub directly (e.g. via " +
-        "the REST or raw GraphQL API) until a future tool returns " +
-        "it.",
+        "than an issue-level PR comment, and the call SHAPE " +
+        "differs: omit `repo` and `number` because the thread ID " +
+        "already disambiguates. NOTE: v0.1 does not yet expose " +
+        "thread IDs in any of this server's outputs (PRSummary " +
+        "carries only review_comments_count); the caller must " +
+        "source the ID from GitHub directly until a future tool " +
+        "returns it.",
     },
   },
+  oneOf: [
+    {
+      // Issue-level path: needs repo + number, no in_reply_to.
+      required: ["repo", "number"],
+      not: { required: ["in_reply_to"] },
+    },
+    {
+      // Thread-reply path: needs in_reply_to ONLY. repo + number
+      // are deliberately disallowed here because the thread ID
+      // already carries enough context — accepting them would
+      // create ambiguity if the caller's repo/number didn't
+      // match the thread's parent PR.
+      required: ["in_reply_to"],
+      not: { anyOf: [{ required: ["repo"] }, { required: ["number"] }] },
+    },
+  ],
   additionalProperties: false,
 } as const;
 
@@ -62,12 +84,24 @@ const outputSchema = {
 
 type RegisterToolFn = (name: string, entry: ToolEntry) => void;
 
-interface Input {
-  repo: string;
-  number: number;
-  body: string;
-  in_reply_to?: string;
-}
+// The two call shapes are split into a discriminated union so
+// the handler narrows correctly without re-checking field
+// presence after the runtime validate(). Schema validation
+// enforces the actual shape; this type just helps TypeScript
+// see the same.
+type Input =
+  | {
+      repo: string;
+      number: number;
+      body: string;
+      in_reply_to?: undefined;
+    }
+  | {
+      in_reply_to: string;
+      body: string;
+      repo?: undefined;
+      number?: undefined;
+    };
 
 interface Output {
   comment_id: string;
@@ -90,14 +124,15 @@ export function registerPRCommentTool(
 ): void {
   register("gh.pr_comment", {
     description:
-      "Add a comment on a PR. Without `in_reply_to`, posts an " +
-      "issue-level PR comment. With `in_reply_to` (a review-thread " +
-      "node ID), posts a reply on that thread. Returns the new " +
-      "comment's node ID and HTML url in either case.",
+      "Add a comment on a PR. TWO CALL SHAPES, mutually exclusive: " +
+      "(a) `{repo, number, body}` posts an issue-level PR comment; " +
+      "(b) `{in_reply_to, body}` posts a reply on a review thread " +
+      "by its node ID. Passing `repo`/`number` together with " +
+      "`in_reply_to` is rejected at schema validation. Returns the " +
+      "new comment's node ID and HTML url in either case.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(inputSchema, raw, "gh.pr_comment input");
-      const coords = parseRepoSlug(args.repo, "gh.pr_comment input");
       let result: Output;
       if (args.in_reply_to !== undefined) {
         const data = await graphql<ReplyResponse>("pr/comment-reply", {
@@ -111,6 +146,9 @@ export function registerPRCommentTool(
           url: data.addPullRequestReviewThreadReply.comment.url,
         };
       } else {
+        // Schema's oneOf guarantees repo + number are present on
+        // this branch, so the parse + lookup never see undefined.
+        const coords = parseRepoSlug(args.repo, "gh.pr_comment input");
         const prId = await lookupPRNodeId(
           graphql,
           coords,

@@ -103,6 +103,15 @@ test("loadQuery: production path is concurrency-safe (single shared init)", asyn
   freshCache();
   _setProductionOverride(true);
   try {
+    // Derive the expected read count from the actual queries
+    // directory rather than hardcoding a constant. A pre-loaded
+    // peek at loadAllQueries() gives the real number of .graphql
+    // files; we then reset and run the concurrent workload.
+    const probe = await loadAllQueries();
+    const expectedFiles = probe.size;
+    freshCache();
+    _setProductionOverride(true);
+
     const beforeCount = _getDiskReadCount();
     const [a, b, c] = await Promise.all([
       loadQuery("_health/viewer"),
@@ -113,11 +122,13 @@ test("loadQuery: production path is concurrency-safe (single shared init)", asyn
     assert.equal(a, b);
     assert.equal(b, c);
     // All three concurrent callers awaited the same init, so each
-    // file is read exactly once across the trio.
+    // file is read exactly once across the trio. The total disk
+    // reads matches the on-disk file count, not 3 × that count.
     const reads = afterCount - beforeCount;
-    assert.ok(
-      reads > 0 && reads <= 16,
-      `expected a single bounded init pass, observed ${reads} disk reads`,
+    assert.equal(
+      reads,
+      expectedFiles,
+      `expected exactly ${expectedFiles} disk reads (one per query file), observed ${reads}`,
     );
   } finally {
     _setProductionOverride(undefined);

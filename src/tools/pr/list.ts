@@ -34,7 +34,12 @@ const inputSchema = {
     head: {
       type: "string",
       minLength: 1,
-      description: "Filter by head ref name (e.g. `owner:branch` or just `branch`).",
+      description:
+        "Filter by head ref name. Branch name only (e.g. `feat/x`); " +
+        "if you pass `owner:branch` (the `gh pr list --head` form), " +
+        "the `owner:` prefix is stripped before sending to GraphQL " +
+        "because Repository.pullRequests.headRefName matches the " +
+        "ref name without an owner qualifier.",
     },
     base: {
       type: "string",
@@ -113,7 +118,12 @@ export function registerPRListTool(
         owner: coords.owner,
         name: coords.name,
         states,
-        headRefName: args.head ?? null,
+        // Strip an optional `owner:` prefix on `head` so the
+        // gh-CLI shape (`--head owner:branch`) keeps working.
+        // GraphQL's `headRefName` filter is the bare branch name,
+        // and the unstripped form would match nothing on a
+        // cross-repo (fork) PR.
+        headRefName: args.head ? stripOwnerPrefix(args.head) : null,
         baseRefName: args.base ?? null,
         first: args.perPage ?? PER_PAGE_DEFAULT,
         after: args.after ?? null,
@@ -151,4 +161,16 @@ function mapStateFilter(
   if (state === "ALL") return null;
   if (state === undefined) return ["OPEN"];
   return [state];
+}
+
+// Drop an `owner:` prefix from a head-ref name. `gh pr list`'s
+// `--head` accepts `owner:branch` for fork PRs; GraphQL's
+// `Repository.pullRequests.headRefName` filter is the branch
+// name only. We strip rather than reject so the gh-CLI shape
+// keeps working without the caller knowing about this
+// boundary. A name with no colon passes through unchanged.
+function stripOwnerPrefix(head: string): string {
+  const colon = head.indexOf(":");
+  if (colon === -1) return head;
+  return head.slice(colon + 1);
 }

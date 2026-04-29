@@ -89,6 +89,30 @@ test("gh.pr_list: head + base filters pass through to GraphQL vars", async () =>
   assert.equal(calls[0]?.vars.baseRefName, "main");
 });
 
+test("gh.pr_list: strips `owner:` prefix from head before forwarding to GraphQL", async () => {
+  // `gh pr list --head owner:branch` is the canonical fork-PR
+  // shape, but GraphQL's headRefName filter is the bare branch
+  // name. Without stripping, fork PRs would silently match
+  // nothing.
+  const { graphql, calls } = stubGraphqlClient({
+    "pr/list": {
+      repository: {
+        pullRequests: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [],
+        },
+      },
+    },
+  });
+  const reg = captureRegistration();
+  registerPRListTool(reg.register, graphql);
+  await reg.entry.handler({
+    repo: "owner/repo",
+    head: "fork-owner:feat/x",
+  });
+  assert.equal(calls[0]?.vars.headRefName, "feat/x");
+});
+
 test("gh.pr_list: author filter is post-filtered client-side", async () => {
   const others = {
     ...sampleRawPR,

@@ -3,9 +3,10 @@
 // Unit tests for `src/registry.ts`. The registry sits behind the
 // public `dist/server.js` entry — consumers can't reach
 // `registerTool` / `getRegisteredToolNames` / `normaliseArgs` / etc.
-// because they aren't re-exported. Tests reach in via the source
-// path (file:// URL to `src/registry.ts`), which bypasses the
-// package's `exports` map and lets us pin the registry behaviour
+// because they aren't re-exported. Tests reach in via a direct
+// relative source-path import to `src/registry.ts`, which bypasses
+// the package's `exports` map (that map only routes consumers
+// through `dist/server.js`) and lets us pin the registry behaviour
 // without committing to it as a public surface.
 
 import { test, beforeEach } from "node:test";

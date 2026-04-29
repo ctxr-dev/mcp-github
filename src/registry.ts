@@ -80,10 +80,11 @@ export function normaliseArgs(
   return args as Record<string, unknown>;
 }
 
-// Test-only: drop every registered tool. Existing unit tests use
-// dynamic-import + cache-bust to get a fresh `server.ts` module per
-// test; with the registry living here they need an explicit reset
-// hook because the registry module isn't re-imported by the cache-bust.
+// Test-only: clear every registered tool so the unit suite can
+// reset module-level registry state between cases. The registry is a
+// single Map for the lifetime of the test process, so without this
+// hook each test would inherit the entries left behind by the
+// previous one.
 export function _resetRegistry(): void {
   tools.clear();
 }

@@ -12,7 +12,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { registerPRRequestReviewsTool } from "../../../../src/tools/pr/request_reviews.ts";
+import {
+  registerPRRequestReviewsTool,
+  _readReviewRequestsOff,
+} from "../../../../src/tools/pr/request_reviews.ts";
 import type { ToolEntry } from "../../../../src/registry.ts";
 import { stubGraphqlClient } from "./_fixtures.ts";
 
@@ -380,6 +383,60 @@ test("gh.pr_request_reviews: surfaces clear error when team_slugs are passed on 
     }),
     /team_slugs is not applicable/,
   );
+});
+
+test("_readReviewRequestsOff: warns when reviewRequests page is truncated", async () => {
+  // The mutation response fetches reviewRequests(first: 100).
+  // PRs with > 100 pending review requests are vanishingly rare,
+  // but if a `union: true` call lands on one the readback would
+  // silently drop the tail. Pin the warn-not-throw contract.
+  const truncated = {
+    requestReviews: {
+      pullRequest: {
+        reviewRequests: {
+          pageInfo: { hasNextPage: true },
+          nodes: [
+            {
+              requestedReviewer: {
+                __typename: "User" as const,
+                login: "alice",
+              },
+            },
+          ],
+        },
+      },
+    },
+  };
+  const warns: string[] = [];
+  const out = _readReviewRequestsOff(truncated, (m) => warns.push(m));
+  // Output is still emitted (we warn rather than throw); the
+  // observable signal lives on stderr.
+  assert.deepEqual(out.requested_reviewers, ["alice"]);
+  assert.equal(warns.length, 1);
+  assert.match(warns[0] ?? "", /more than 100 pending review requests/);
+});
+
+test("_readReviewRequestsOff: silent on the common, not-truncated case", async () => {
+  const normal = {
+    requestReviews: {
+      pullRequest: {
+        reviewRequests: {
+          pageInfo: { hasNextPage: false },
+          nodes: [
+            {
+              requestedReviewer: {
+                __typename: "Bot" as const,
+                login: "copilot",
+              },
+            },
+          ],
+        },
+      },
+    },
+  };
+  const warns: string[] = [];
+  _readReviewRequestsOff(normal, (m) => warns.push(m));
+  assert.equal(warns.length, 0);
 });
 
 test("gh.pr_request_reviews: rejects malformed repo slug at the input boundary", async () => {

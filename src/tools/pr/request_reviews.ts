@@ -216,7 +216,7 @@ export function registerPRRequestReviewsTool(
         "pr/request_reviews",
         { input },
       );
-      const out = readReviewRequestsOff(data);
+      const out = _readReviewRequestsOff(data);
       return validate<Output>(
         outputSchema,
         out,
@@ -355,7 +355,21 @@ async function resolveBotIds(
 // post-replace state (which only contains the just-supplied
 // reviewers) and under `union: true` it shows the merged set
 // (which can include reviewers from BEFORE this call).
-function readReviewRequestsOff(data: RequestReviewsResponse): Output {
+//
+// `warn` is parameterised so unit tests can capture the
+// truncation message without hijacking stderr. Defaults to
+// `process.stderr.write`, matching the pattern in
+// `summarisePR()`.
+//
+// Exported for the unit suite under the `_` prefix so the
+// truncation-warn behaviour can be pinned without spinning up
+// the full handler. Not part of the package's public API
+// surface — tests reach in via a direct relative import.
+export function _readReviewRequestsOff(
+  data: RequestReviewsResponse,
+  warn: (msg: string) => void = (msg) =>
+    process.stderr.write(`${msg}\n`),
+): Output {
   const requested_reviewers: string[] = [];
   const requested_teams: string[] = [];
   const requested_bots: string[] = [];
@@ -374,6 +388,19 @@ function readReviewRequestsOff(data: RequestReviewsResponse): Output {
         requested_teams.push(r.slug);
         break;
     }
+  }
+  // The mutation response fetches `reviewRequests(first: 100)`.
+  // Under `union: true` on a PR that already had > 100 pending
+  // reviewers, the readback would silently drop the tail —
+  // surface a warning so the caller sees the partial result is
+  // intentional rather than a missed reviewer. PRs with > 100
+  // pending review-requests are vanishingly rare in practice
+  // (GitHub's UI doesn't even paginate the list), so we warn
+  // rather than throw.
+  if (data.requestReviews.pullRequest.reviewRequests.pageInfo.hasNextPage) {
+    warn(
+      `mcp-github: gh.pr_request_reviews: PR has more than 100 pending review requests; output is truncated to the first page.`,
+    );
   }
   return { requested_reviewers, requested_teams, requested_bots };
 }

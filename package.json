@@ -35,7 +35,7 @@
     "build": "tsc -p tsconfig.json && node ./scripts/post-build.mjs",
     "test": "node --test --test-reporter=spec --import tsx ./tests/unit/**/*.test.ts",
     "test:integration": "GITHUB_PAT_LIVE=1 node --test --test-reporter=spec --import tsx ./tests/integration/**/*.test.ts",
-    "lint": "tsc -p tsconfig.json --noEmit",
+    "lint": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
     "prepack": "npm run build"
   },
   "dependencies": {

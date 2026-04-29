@@ -16,6 +16,7 @@ import {
   registerPRRequestReviewsTool,
   _readReviewRequestsOff,
 } from "../../../../src/tools/pr/request_reviews.ts";
+import { GraphqlError } from "../../../../src/graphql/errors.ts";
 import type { ToolEntry } from "../../../../src/registry.ts";
 import { stubGraphqlClient } from "./_fixtures.ts";
 
@@ -218,13 +219,24 @@ test("gh.pr_request_reviews: rejects a human login passed in bot_logins", async 
   );
 });
 
-test("gh.pr_request_reviews: rejects a bot login passed in user_logins", async () => {
-  // Symmetric routing check. user(login) errors out for bots
-  // but we also defensively check __typename in case GitHub's
-  // API ever returns null instead of erroring.
+test("gh.pr_request_reviews: maps GraphqlError from user(login) onto a routing-hint message", async () => {
+  // Real-world failure shape: `user(login: "dependabot")`
+  // returns a GraphQL `errors[]` ("Could not resolve to a User
+  // with the login of 'dependabot'"). client.ts wraps that as
+  // a GraphqlError. The handler must catch it and rethrow with
+  // a tool-scoped message that points the caller at
+  // `bot_logins` — otherwise they'd see a generic
+  // GraphqlError and have no idea which input slot to use.
   const { graphql } = stubGraphqlClient({
     "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
-    "pr/_user-id": () => ({ user: null }),
+    "pr/_user-id": () => {
+      throw new GraphqlError([
+        {
+          type: "NOT_FOUND",
+          message: "Could not resolve to a User with the login of 'dependabot'.",
+        },
+      ]);
+    },
     "pr/request_reviews": () => {
       throw new Error("mutation must NOT run when user resolution fails");
     },
@@ -237,7 +249,31 @@ test("gh.pr_request_reviews: rejects a bot login passed in user_logins", async (
       number: 42,
       user_logins: ["dependabot"],
     }),
-    /user 'dependabot' not found/,
+    /'dependabot' could not be resolved as a User .* use bot_logins/,
+  );
+});
+
+test("gh.pr_request_reviews: handles the rare null-user response cleanly", async () => {
+  // GitHub's GraphQL has been known to return `{ user: null }`
+  // for some special cases (deleted accounts) instead of
+  // erroring. Pin that we surface a "user not found" rather
+  // than crashing on `data.user.id` access.
+  const { graphql } = stubGraphqlClient({
+    "pr/_pr-lookup": { repository: { pullRequest: { id: "PR_target" } } },
+    "pr/_user-id": () => ({ user: null }),
+    "pr/request_reviews": () => {
+      throw new Error("mutation must NOT run");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRRequestReviewsTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 42,
+      user_logins: ["ghost-account"],
+    }),
+    /user 'ghost-account' not found/,
   );
 });
 

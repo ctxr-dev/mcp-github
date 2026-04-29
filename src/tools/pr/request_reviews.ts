@@ -29,6 +29,7 @@
 //      return it as the canonical output.
 
 import type { GraphqlClient } from "../../graphql/client.js";
+import { GraphqlError } from "../../graphql/errors.js";
 import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import {
@@ -88,7 +89,13 @@ const outputSchema = {
     requested_reviewers: {
       type: "array",
       items: { type: "string" },
-      description: "Logins of human reviewers currently requested on the PR.",
+      description:
+        "Logins of human-shaped reviewers currently requested on " +
+        "the PR. Includes both `User` and `Mannequin` (the GHE " +
+        "migration placeholder for former contributors); the two " +
+        "share a login-shaped identifier and the same review " +
+        "semantics, so they're bucketed together rather than " +
+        "split into separate output fields.",
     },
     requested_teams: {
       type: "array",
@@ -227,14 +234,20 @@ export function registerPRRequestReviewsTool(
   });
 }
 
-// Resolve human logins → GraphQL User IDs. The `user(login)`
-// query throws when the login doesn't exist; client.ts will
-// surface that as a `GraphqlError`. We additionally check
-// `__typename === "User"` because GitHub's GraphQL has been
-// known to return `null` for some special cases (deleted
-// accounts) without erroring; treating a non-User response as
-// a bot-vs-human routing error gives the caller a clearer
-// signal than a generic GraphQL error would.
+// Resolve human logins → GraphQL User IDs. Three failure shapes
+// are possible from `user(login)`:
+//
+//   1. GraphQL errors[] surfaces as `GraphqlError` from
+//      client.ts. Most common for bot logins, where the API
+//      returns "Could not resolve to a User with the login of
+//      '...'". We catch it and rethrow with a tool-scoped
+//      message that hints at `bot_logins` so the caller's next
+//      attempt is correct.
+//   2. Response is `{ user: null }`. Less common (deleted
+//      accounts) but treated as "user not found".
+//   3. Response is non-null but `__typename` isn't "User".
+//      Defensive — GitHub's GraphQL has been known to deviate
+//      here for some special cases.
 async function resolveUserIds(
   graphql: GraphqlClient,
   logins: readonly string[],
@@ -242,7 +255,23 @@ async function resolveUserIds(
   if (logins.length === 0) return [];
   const ids = await Promise.all(
     logins.map(async (login) => {
-      const data = await graphql<UserIdResponse>("pr/_user-id", { login });
+      let data: UserIdResponse;
+      try {
+        data = await graphql<UserIdResponse>("pr/_user-id", { login });
+      } catch (err) {
+        if (err instanceof GraphqlError) {
+          const upstream = err.errors
+            .map((e) => e.message ?? "unknown")
+            .join("; ");
+          const looksLikeBot = /could not resolve to a user/i.test(upstream);
+          throw new Error(
+            looksLikeBot
+              ? `mcp-github: gh.pr_request_reviews: '${login}' could not be resolved as a User (upstream: ${upstream}); use bot_logins for bot accounts`
+              : `mcp-github: gh.pr_request_reviews: failed to resolve user '${login}' (upstream: ${upstream})`,
+          );
+        }
+        throw err;
+      }
       if (!data.user) {
         throw new Error(
           `mcp-github: gh.pr_request_reviews: user '${login}' not found`,
@@ -379,6 +408,13 @@ export function _readReviewRequestsOff(
     if (!r) continue; // null is possible per GraphQL nullability
     switch (r.__typename) {
       case "User":
+      // Mannequin is the GitHub Enterprise migration placeholder
+      // for a former contributor whose account no longer exists.
+      // It carries a login like a User and has the same review-
+      // request semantics, so we bucket it alongside human
+      // reviewers rather than inventing a separate output field
+      // that nearly every consumer would have to ignore. The
+      // schema description spells this out for callers.
       case "Mannequin":
         requested_reviewers.push(r.login);
         break;

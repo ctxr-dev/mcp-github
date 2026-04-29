@@ -1,0 +1,17 @@
+query LabelList($owner: String!, $name: String!, $first: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    labels(first: $first, after: $after, orderBy: { field: NAME, direction: ASC }) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        id
+        name
+        color
+        description
+        url
+      }
+    }
+  }
+}

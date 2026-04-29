@@ -35,6 +35,7 @@ import {
 } from "./registry.js";
 import { registerTestConnectionTool } from "./tools/auth/test_connection.js";
 import { registerIssueTools } from "./tools/issue/index.js";
+import { registerLabelTools } from "./tools/label/index.js";
 import { registerPRTools } from "./tools/pr/index.js";
 
 // Read the package version from the package.json next to the dist
@@ -77,6 +78,7 @@ export async function startServer(): Promise<void> {
   const graphql = createGraphqlClient(authedRequest);
   registerTestConnectionTool(registerTool, authedRequest);
   registerIssueTools(registerTool, graphql);
+  registerLabelTools(registerTool, graphql);
   registerPRTools(registerTool, graphql);
 
   const server = new Server(

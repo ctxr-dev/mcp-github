@@ -1,9 +1,13 @@
 // src/tools/pr/view.ts
 //
 // `gh.pr_view` — fetches a PR with reviews + review-comment count
-// + status-checks rolled in. The single output shape (`PRSummary`)
-// is shared with create/edit/list/merge so consumers see the same
-// fields regardless of how they got the PR payload.
+// + status-checks rolled in. The output shape (`PRSummary`) is
+// shared with create/edit (and list, which returns an array of
+// these), so consumers see the same fields regardless of how
+// they got the PR payload. gh.pr_merge has its own smaller
+// `{merged, sha, url, number}` shape because the merge mutation
+// only guarantees those fields and a full re-fetch would be
+// wasted work.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";

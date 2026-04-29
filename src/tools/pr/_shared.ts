@@ -77,9 +77,13 @@ export async function lookupRepoNodeId(
   return data.repository.id;
 }
 
-// JSON-Schema-shaped summary returned by every PR tool that
-// produces a "full PR payload" output (create, view, edit, merge).
-// The list tool returns an array of these.
+// JSON-Schema-shaped summary returned by the PR tools that
+// produce a "full PR payload" output: create, view, edit. The
+// list tool returns an array of these. gh.pr_merge does NOT
+// return PRSummary — it produces a smaller `{merged, sha, url,
+// number}` shape because the merge mutation's response only
+// guarantees those fields and a full re-fetch would be wasted
+// work.
 export interface ReviewSummary {
   author: string | null;
   state: "PENDING" | "COMMENTED" | "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED";

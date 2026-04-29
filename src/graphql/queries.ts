@@ -29,9 +29,13 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const QUERIES_ROOT = resolve(HERE, "queries");
 
 // Module-level cache keyed by canonical query name (e.g. `_health/viewer`).
-// Only populated under production. In dev we bypass this entirely so
-// HMR-style edits surface without a process restart.
-const cache = new Map<string, string>();
+// Populated by `loadAllQueries()` / `ensureInitialized()`. In production
+// `loadQuery` reads from this cache. In development `loadQuery`
+// bypasses it and re-reads from disk per call so HMR-style edits
+// surface without a process restart, but `loadAllQueries()` (used by
+// the unit tests and the prod startup-validation path) still
+// populates the cache regardless of mode.
+let cache = new Map<string, string>();
 
 // Single shared init promise so concurrent loadQuery() calls don't
 // each kick off their own loadAllQueries() and fight over the shared
@@ -68,18 +72,26 @@ function isProduction(): boolean {
 }
 
 export async function loadQuery(name: string): Promise<string> {
+  // Normalise the caller-supplied name so dev and prod resolve
+  // identically. Internal `populateCache()` already converts file
+  // paths from backslashes to forward slashes when indexing on
+  // Windows; doing the same here means a caller passing
+  // `_health\viewer` works in both modes (dev resolves via the
+  // filesystem, prod looks up the canonical key) instead of dev
+  // succeeding silently and prod throwing "unknown query".
+  const canonical = name.replace(/\\/g, "/");
   if (!isProduction()) {
-    return readQueryFile(name);
+    return readQueryFile(canonical);
   }
   // ensureInitialized routes every concurrent caller through the same
   // promise. After it resolves the cache is populated and we can
   // serve all subsequent loadQuery calls in O(1) without ever
   // touching the filesystem.
   await ensureInitialized();
-  const cached = cache.get(name);
+  const cached = cache.get(canonical);
   if (typeof cached !== "string") {
     throw new Error(
-      `mcp-github: unknown GraphQL query '${name}'. ` +
+      `mcp-github: unknown GraphQL query '${canonical}'. ` +
         `Looked under ${QUERIES_ROOT}.`,
     );
   }
@@ -118,20 +130,23 @@ function ensureInitialized(): Promise<ReadonlyMap<string, string>> {
 }
 
 async function populateCache(): Promise<ReadonlyMap<string, string>> {
-  // We don't `cache.clear()` here: under the shared-promise pattern
-  // there is exactly one populateCache call per cache lifetime, and
-  // a clear+rebuild would be a footgun if a future change ever
-  // triggers populateCache mid-read.
+  // Build into a fresh Map and swap it in on success. If a partial
+  // populate fails midway (transient FS read error), the swap never
+  // happens and `cache` keeps its previous state — there is no
+  // "stale half-populated" mid-state visible to readers, and a
+  // retry starts from a clean slate.
+  const next = new Map<string, string>();
   let entries: string[];
   try {
     entries = await readdir(QUERIES_ROOT, { recursive: true });
   } catch (err) {
     if (isErrnoNotFound(err)) {
       // No queries directory at all — happens on a fresh checkout
-      // before any query files have been added. Cache stays empty;
-      // any loadQuery() call will then throw the "unknown query"
-      // error, which is the right signal.
-      return cache;
+      // before any query files have been added. Swap in the empty
+      // map so subsequent `loadQuery()` calls observe the absence
+      // (they'll throw "unknown query", which is the right signal).
+      cache = next;
+      return next;
     }
     throw err;
   }
@@ -145,9 +160,12 @@ async function populateCache(): Promise<ReadonlyMap<string, string>> {
       .replace(/\\/g, "/");
     const contents = await readFile(abs, "utf8");
     diskReadCount += 1;
-    cache.set(name, contents);
+    next.set(name, contents);
   }
-  return cache;
+  // Atomic swap on success: prior cache contents are replaced
+  // wholesale, so deletions in the queries directory propagate.
+  cache = next;
+  return next;
 }
 
 // Test-only hook: drop the cached state so a fresh init re-reads
@@ -156,7 +174,7 @@ async function populateCache(): Promise<ReadonlyMap<string, string>> {
 // exported through the public surface, but kept on a separate function
 // so tests can grab it via the module's internal namespace if needed.
 export function _resetQueryCache(): void {
-  cache.clear();
+  cache = new Map<string, string>();
   initPromise = null;
   productionOverride = undefined;
   diskReadCount = 0;

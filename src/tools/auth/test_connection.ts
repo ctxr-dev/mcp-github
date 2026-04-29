@@ -19,6 +19,12 @@
 
 import { RequestError } from "@octokit/request-error";
 import type { AuthedRequest } from "../../auth/octokit.js";
+// Type-only import: erased at compile time, so it does NOT create
+// a runtime dependency on the registry module. We reuse the
+// canonical ToolEntry shape from `src/registry.ts` so tool typings
+// stay aligned with the registry contract; an inlined duplicate
+// would drift as soon as the registry's shape evolved.
+import type { ToolEntry } from "../../registry.js";
 
 const VIEWER_QUERY = "query { viewer { login } }";
 
@@ -32,25 +38,15 @@ interface ViewerGraphqlPayload {
   errors?: Array<{ message?: string }>;
 }
 
-// Shape of a tool-registry entry. Inlined here (rather than imported
-// from server.ts) so this module has no compile-time dependency on
-// the server module: server.ts → test_connection.ts is the only
-// import direction, which keeps the registry-loading sequence
-// linear at module-init time.
-interface ToolEntryShape {
-  description: string;
-  inputSchema: Record<string, unknown>;
-  handler: (args: Record<string, unknown>) => Promise<unknown>;
-}
-type RegisterToolFn = (name: string, entry: ToolEntryShape) => void;
+// Caller passes in the registration function (typically the
+// registry's `registerTool`) plus the resolved authed client.
+// Decoupling the registration callable from a static import keeps
+// the dependency arrow strictly server.ts → tools/**: tool modules
+// never import from server.ts at runtime, even transitively, which
+// avoids any TDZ trap if a future tool registers at module-import
+// time.
+type RegisterToolFn = (name: string, entry: ToolEntry) => void;
 
-// Caller passes in `register` (typically server.ts's `registerTool`)
-// plus the resolved authed client. Decoupling the registration
-// callable from a static import breaks the would-be cycle where
-// server.ts imports this module while this module imports
-// `registerTool` back from server.ts. The same shape covers any
-// future "the tool registers itself" pattern without re-introducing
-// the cycle.
 export function registerTestConnectionTool(
   register: RegisterToolFn,
   authedRequest: AuthedRequest,

@@ -177,19 +177,24 @@ function mapStateFilter(
 // We reject malformed shapes BEFORE stripping so the caller sees
 // the bad input rather than a "no results" mystery later:
 //
-//   - leading colon (`":branch"`) → empty owner; almost
-//     certainly a typo / mis-concatenation upstream, not the
-//     intent.
-//   - trailing colon (`"owner:"`) → empty branch; same.
+//   - leading colon (`":branch"`) → empty owner.
+//   - trailing colon (`"owner:"`) → empty branch.
+//   - more than one colon (`"a:b:c"`) → not a valid
+//     `owner:branch` shape; the unstripped tail (`"b:c"`) would
+//     silently match nothing on GraphQL.
 //   - no colon at all → unchanged.
 //
 // Returns the bare branch name on success; throws otherwise.
 function stripOwnerPrefix(head: string, where: string): string {
   const colon = head.indexOf(":");
   if (colon === -1) return head;
-  if (colon === 0 || colon === head.length - 1) {
+  const malformed =
+    colon === 0 ||
+    colon === head.length - 1 ||
+    head.indexOf(":", colon + 1) !== -1;
+  if (malformed) {
     throw new Error(
-      `mcp-github: ${where}: head '${head}' is malformed; expected 'owner:branch' with both halves non-empty`,
+      `mcp-github: ${where}: head '${head}' is malformed; expected 'owner:branch' with both halves non-empty and exactly one colon`,
     );
   }
   return head.slice(colon + 1);

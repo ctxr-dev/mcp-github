@@ -148,6 +148,23 @@ test("gh.pr_list: rejects head with empty owner (`:branch`)", async () => {
   );
 });
 
+test("gh.pr_list: rejects head with more than one colon (`a:b:c`)", async () => {
+  // Multi-colon shapes don't match `owner:branch`; the strip
+  // would forward "b:c" as the branch filter, which GraphQL
+  // would silently fail to match. Reject upfront.
+  const { graphql } = stubGraphqlClient({
+    "pr/list": () => {
+      throw new Error("must not run when head is malformed");
+    },
+  });
+  const reg = captureRegistration();
+  registerPRListTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", head: "a:b:c" }),
+    /head 'a:b:c' is malformed/,
+  );
+});
+
 test("gh.pr_list: author filter is post-filtered client-side", async () => {
   const others = {
     ...sampleRawPR,

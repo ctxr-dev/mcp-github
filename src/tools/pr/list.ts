@@ -114,16 +114,23 @@ export function registerPRListTool(
       const args = validate<Input>(inputSchema, raw, "gh.pr_list input");
       const coords = parseRepoSlug(args.repo, "gh.pr_list input");
       const states = mapStateFilter(args.state);
+      // Strip an optional `owner:` prefix on `head` so the gh-CLI
+      // shape (`--head owner:branch`) keeps working. GraphQL's
+      // `headRefName` filter is the bare branch name. Validate
+      // post-strip too: `head: "owner:"` and `head: ":branch"`
+      // (in the second the prefix is empty) would otherwise send
+      // an empty filter that matches nothing.
+      const head = args.head ? stripOwnerPrefix(args.head) : null;
+      if (head !== null && head.length === 0) {
+        throw new Error(
+          `mcp-github: gh.pr_list input: head must contain a branch name after the optional 'owner:' prefix, got '${args.head}'`,
+        );
+      }
       const data = await graphql<Response>("pr/list", {
         owner: coords.owner,
         name: coords.name,
         states,
-        // Strip an optional `owner:` prefix on `head` so the
-        // gh-CLI shape (`--head owner:branch`) keeps working.
-        // GraphQL's `headRefName` filter is the bare branch name,
-        // and the unstripped form would match nothing on a
-        // cross-repo (fork) PR.
-        headRefName: args.head ? stripOwnerPrefix(args.head) : null,
+        headRefName: head,
         baseRefName: args.base ?? null,
         first: args.perPage ?? PER_PAGE_DEFAULT,
         after: args.after ?? null,

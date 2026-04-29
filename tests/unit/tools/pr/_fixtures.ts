@@ -87,13 +87,13 @@ export const sampleRawPR = {
               pageInfo: { hasNextPage: false },
               nodes: [
                 {
-                  __typename: "CheckRun",
+                  __typename: "CheckRun" as const,
                   name: "ci/build",
                   conclusion: "SUCCESS" as const,
                   status: "COMPLETED" as const,
                 },
                 {
-                  __typename: "StatusContext",
+                  __typename: "StatusContext" as const,
                   context: "ci/legacy",
                   state: "SUCCESS" as const,
                 },

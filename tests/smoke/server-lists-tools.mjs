@@ -1,16 +1,22 @@
 #!/usr/bin/env node
-// tests/smoke/server-lists-zero-tools.mjs
+// tests/smoke/server-lists-tools.mjs
 //
 // End-to-end smoke test: spawn the freshly-built dist/server.mjs over
 // stdio, send the MCP `initialize` handshake + `tools/list`, assert
-// the server responds with an empty tools array. Proves at v0.1
-// bootstrap that the SDK wiring is correct end-to-end without
-// pulling in the full unit-test framework.
+// the registered tool surface (currently just `gh.test_connection`
+// from MCP-2). Proves the SDK wiring + auth bootstrap + tool
+// registration chain end-to-end without pulling in the unit-test
+// framework.
 //
 // Wire format: the MCP SDK's StdioServerTransport uses newline-
 // delimited JSON-RPC (one JSON message per `\n`-terminated line),
 // not LSP-style Content-Length framing. Confirmed in the SDK
 // source at @modelcontextprotocol/sdk/dist/esm/shared/stdio.js.
+//
+// Auth: the server runs `resolvePat()` at startup, so we inject a
+// fake `GITHUB_TOKEN`. The smoke test never *invokes* a tool — it
+// only asks the server to list its tools — so the fake token never
+// hits the network; it just satisfies the env-presence check.
 
 import { spawn } from "node:child_process";
 import { resolve, dirname } from "node:path";
@@ -18,6 +24,8 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER = resolve(__dirname, "..", "..", "dist", "server.mjs");
+
+const EXPECTED_TOOLS = ["gh.test_connection"];
 
 function frame(payload) {
   // Newline-delimited JSON-RPC. JSON.stringify cannot emit a literal
@@ -50,6 +58,10 @@ function parseFrames(buffer) {
 
 const child = spawn(process.execPath, [SERVER], {
   stdio: ["pipe", "pipe", "inherit"],
+  env: {
+    ...process.env,
+    GITHUB_TOKEN: "ghp_smoke_test_fake_token",
+  },
 });
 
 let buffer = "";
@@ -91,10 +103,19 @@ child.stdout.on("data", (chunk) => {
       try {
         const { tools } = m.result;
         if (!Array.isArray(tools)) throw new Error("expected tools array");
-        if (tools.length !== 0) {
-          throw new Error(`expected 0 tools at v0.1 bootstrap, got ${tools.length}: ${tools.map((t) => t.name).join(", ")}`);
+        const names = tools.map((t) => t.name).sort();
+        const expected = [...EXPECTED_TOOLS].sort();
+        if (
+          names.length !== expected.length ||
+          names.some((n, i) => n !== expected[i])
+        ) {
+          throw new Error(
+            `expected tools ${JSON.stringify(expected)}, got ${JSON.stringify(names)}`,
+          );
         }
-        process.stdout.write("smoke: server lists 0 tools as expected\n");
+        process.stdout.write(
+          `smoke: server lists ${names.length} tool(s) as expected: ${names.join(", ")}\n`,
+        );
         clearTimeout(timeout);
         resolved = true;
         child.kill("SIGTERM");

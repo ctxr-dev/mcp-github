@@ -9,6 +9,9 @@
 // directly from source. The `.js` import specifier below is the
 // canonical ESM extension TypeScript preserves into the dist tree;
 // the source file is `src/registry.ts`.
+//
+// MCP-2 layers PAT resolution + auth-aware tool registration into
+// `startServer()`. Real domain tools land in MCP-3 onwards.
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -21,11 +24,15 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { resolvePat } from "./auth/pat.js";
+import { createAuthedRequest } from "./auth/octokit.js";
 import {
   getToolEntry,
   listToolDescriptors,
   normaliseArgs,
+  registerTool,
 } from "./registry.js";
+import { registerTestConnectionTool } from "./tools/auth/test_connection.js";
 
 // Read the package version from the package.json next to the dist
 // tree at startup, so a single source of truth (package.json) drives
@@ -49,6 +56,23 @@ function readPackageVersion(): string {
 }
 
 export async function startServer(): Promise<void> {
+  // Resolve the PAT and wire up the authed Octokit clients before
+  // registering any auth-aware tools. resolvePat() throws
+  // MissingPatError when no env var is set, which bubbles up to the
+  // bin shim (`dist/server.mjs`) so startup fails fast instead of
+  // partially initialising the server without authentication. The
+  // shim writes the message to stderr (prefixed with `mcp-github
+  // fatal:`) and exits non-zero — currently 1 for any startup error,
+  // including auth misses.
+  const pat = resolvePat();
+  const authedRequest = createAuthedRequest(pat);
+  // Pass `registerTool` in (rather than letting test_connection
+  // import it) so the dependency arrow is one-way:
+  // server.ts → tools/**, never tools/** → server.ts. Avoids the
+  // TDZ-prone cycle that would otherwise form once a tool registers
+  // at module-import time.
+  registerTestConnectionTool(registerTool, authedRequest);
+
   const server = new Server(
     {
       name: "@ctxr/mcp-github",

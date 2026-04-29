@@ -74,6 +74,15 @@ const child = spawn(
   { stdio: "inherit", env },
 );
 
+// Without an "error" handler, a failure to spawn the child (EACCES,
+// missing executable, permission errors) emits a default unhandled
+// "error" event with a stack trace. We surface a concise script-level
+// failure instead so the npm-run-script log isn't a wall of internals.
+child.on("error", (err) => {
+  process.stderr.write(`run-tests: failed to start child process: ${err.message}\n`);
+  process.exit(1);
+});
+
 child.on("exit", (code, signal) => {
   if (signal) {
     process.stderr.write(`run-tests: child terminated by signal ${signal}\n`);

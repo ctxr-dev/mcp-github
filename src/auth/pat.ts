@@ -28,7 +28,10 @@ export class MissingPatError extends Error {
       `mcp-github: no GitHub token found in environment. ` +
         `Set one of: ${checked.join(", ")}.`,
     );
-    this.checkedEnv = checked;
+    // Frozen copy: the error escapes the module and a caller could
+    // otherwise mutate `err.checkedEnv` (e.g. via `as any`) and
+    // change the resolver's precedence chain in subsequent calls.
+    this.checkedEnv = Object.freeze([...checked]);
   }
 }
 

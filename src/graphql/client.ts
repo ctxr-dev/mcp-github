@@ -77,10 +77,17 @@ export function createGraphqlClient(
     // *before* checking the GraphQL `errors[]` payload so a
     // rate-limit response (which can sometimes also carry errors)
     // surfaces as the more actionable RateLimitExhaustedError.
-    enforceRateLimit(
-      response.headers as Record<string, unknown>,
-      warn,
-    );
+    //
+    // Branch on the optional warn explicitly. Passing `undefined` to
+    // a parameter with a default works at runtime, but under
+    // exactOptionalPropertyTypes the call-site spelling matters: the
+    // two-arg form requires a definite function, so we only take it
+    // when the caller actually supplied one.
+    if (warn !== undefined) {
+      enforceRateLimit(response.headers as Record<string, unknown>, warn);
+    } else {
+      enforceRateLimit(response.headers as Record<string, unknown>);
+    }
 
     const body = response.data as GraphqlResponseBody<T>;
     if (Array.isArray(body.errors) && body.errors.length > 0) {

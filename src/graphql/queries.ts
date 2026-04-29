@@ -22,7 +22,7 @@
 // pipeline working?" smoke target and is exercised by the unit tests.
 
 import { readFile, readdir } from "node:fs/promises";
-import { resolve, dirname, relative, isAbsolute } from "node:path";
+import { resolve, dirname, relative, isAbsolute, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -72,14 +72,15 @@ function isProduction(): boolean {
 }
 
 export async function loadQuery(name: string): Promise<string> {
-  // Normalise the caller-supplied name so dev and prod resolve
-  // identically. Internal `populateCache()` already converts file
-  // paths from backslashes to forward slashes when indexing on
-  // Windows; doing the same here means a caller passing
-  // `_health\viewer` works in both modes (dev resolves via the
-  // filesystem, prod looks up the canonical key) instead of dev
-  // succeeding silently and prod throwing "unknown query".
-  const canonical = name.replace(/\\/g, "/");
+  // Normalise the caller-supplied name to the canonical posix
+  // shape: convert backslashes to forward slashes, then collapse
+  // ".", "..", and duplicate slashes via posix.normalize. Without
+  // this, dev (which goes through the filesystem and benefits from
+  // path.resolve's own normalisation) would happily resolve names
+  // like `x/../_health/viewer` while prod (a literal cache lookup
+  // by string key) would miss. Both paths now agree on the same
+  // canonical key shape.
+  const canonical = canonicaliseQueryName(name);
   if (!isProduction()) {
     return readQueryFile(canonical);
   }
@@ -96,6 +97,29 @@ export async function loadQuery(name: string): Promise<string> {
     );
   }
   return cached;
+}
+
+// Posix-normalise a query name and reject any form that would
+// escape the queries root. Shared by both the dev and prod paths
+// so the canonical key shape is identical end-to-end.
+function canonicaliseQueryName(name: string): string {
+  const slashified = name.replace(/\\/g, "/");
+  // posix.normalize collapses "./" and "..", drops duplicate
+  // slashes, and is idempotent — exactly the contract we want for
+  // a cache key. It does keep leading ".." segments though, so we
+  // still need the explicit escape check below.
+  const normalized = posix.normalize(slashified);
+  if (
+    normalized.startsWith("..") ||
+    normalized.startsWith("/") ||
+    normalized.length === 0 ||
+    normalized === "."
+  ) {
+    throw new Error(
+      `mcp-github: query name '${name}' escapes queries root or resolves to empty`,
+    );
+  }
+  return normalized;
 }
 
 // Eagerly populate the cache. Exposed for tests + for the server

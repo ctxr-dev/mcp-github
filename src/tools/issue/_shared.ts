@@ -186,7 +186,7 @@ export interface IssueSummary {
   url: string;
   node_id: string;
   title: string;
-  state: string;
+  state: "OPEN" | "CLOSED";
   body: string | null;
   labels: string[];
   assignees: string[];

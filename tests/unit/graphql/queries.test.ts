@@ -47,6 +47,26 @@ test("loadQuery: rejects names that try to escape the queries root", async () =>
   );
 });
 
+test("loadQuery: posix-normalises caller-supplied names (dev + prod agree)", async () => {
+  // `x/../_health/viewer` collapses to `_health/viewer`. Without
+  // canonicalisation, dev resolved this happily via path.resolve()
+  // while prod missed the cache (literal-string lookup), producing
+  // a dev/prod mismatch. The normalisation runs on both paths.
+  freshCache();
+  const q = await loadQuery("./x/../_health//viewer");
+  assert.match(q, /viewer/);
+});
+
+test("loadQuery: rejects empty / dot-only names after normalisation", async () => {
+  // posix.normalize("") returns ".", and posix.normalize(".") also
+  // returns "." — both should be rejected because they don't name
+  // any real query and would otherwise produce confusing error
+  // surfaces (or, with an unrelated bug, expose the queries root).
+  freshCache();
+  await assert.rejects(loadQuery(""), /escapes queries root or resolves to empty/);
+  await assert.rejects(loadQuery("."), /escapes queries root or resolves to empty/);
+});
+
 test("loadAllQueries: indexes the canonical placeholder", async () => {
   freshCache();
   const all = await loadAllQueries();

@@ -32,7 +32,24 @@ const QUERIES_ROOT = resolve(HERE, "queries");
 // Only populated under production. In dev we bypass this entirely so
 // HMR-style edits surface without a process restart.
 const cache = new Map<string, string>();
-let initialized = false;
+
+// Single shared init promise so concurrent loadQuery() calls don't
+// each kick off their own loadAllQueries() and fight over the shared
+// cache mid-flight. The first call creates the promise; later
+// callers await the same one and observe a fully-populated cache.
+// `null` means uninitialised; once set, the value sticks until
+// `_resetQueryCache()` clears it.
+let initPromise: Promise<ReadonlyMap<string, string>> | null = null;
+
+// Test-only counter so the production-cache test can verify the
+// caching contract in observable terms (file reads happen at most
+// once per query across calls), instead of just asserting that two
+// calls return equal contents — which would also pass on the dev
+// path or under a regression that re-reads on every call.
+let diskReadCount = 0;
+export function _getDiskReadCount(): number {
+  return diskReadCount;
+}
 
 // Test-only override for the dev/prod switch. Node's test runner
 // executes tests concurrently by default, so the production-cache-path
@@ -54,9 +71,11 @@ export async function loadQuery(name: string): Promise<string> {
   if (!isProduction()) {
     return readQueryFile(name);
   }
-  if (!initialized) {
-    await loadAllQueries();
-  }
+  // ensureInitialized routes every concurrent caller through the same
+  // promise. After it resolves the cache is populated and we can
+  // serve all subsequent loadQuery calls in O(1) without ever
+  // touching the filesystem.
+  await ensureInitialized();
   const cached = cache.get(name);
   if (typeof cached !== "string") {
     throw new Error(
@@ -69,9 +88,26 @@ export async function loadQuery(name: string): Promise<string> {
 
 // Eagerly populate the cache. Exposed for tests + for the server
 // startup path that wants to fail fast if the queries directory is
-// malformed (rather than at first tool call).
-export async function loadAllQueries(): Promise<ReadonlyMap<string, string>> {
-  cache.clear();
+// malformed (rather than at first tool call). Idempotent: subsequent
+// calls return the same shared init promise.
+export function loadAllQueries(): Promise<ReadonlyMap<string, string>> {
+  return ensureInitialized();
+}
+
+// Internal: shared-promise initializer. Concurrent callers all get
+// the same promise; the underlying `populateCache()` runs at most
+// once per cache lifetime.
+function ensureInitialized(): Promise<ReadonlyMap<string, string>> {
+  if (initPromise) return initPromise;
+  initPromise = populateCache();
+  return initPromise;
+}
+
+async function populateCache(): Promise<ReadonlyMap<string, string>> {
+  // We don't `cache.clear()` here: under the shared-promise pattern
+  // there is exactly one populateCache call per cache lifetime, and
+  // a clear+rebuild would be a footgun if a future change ever
+  // triggers populateCache mid-read.
   let entries: string[];
   try {
     entries = await readdir(QUERIES_ROOT, { recursive: true });
@@ -81,7 +117,6 @@ export async function loadAllQueries(): Promise<ReadonlyMap<string, string>> {
       // before any query files have been added. Cache stays empty;
       // any loadQuery() call will then throw the "unknown query"
       // error, which is the right signal.
-      initialized = true;
       return cache;
     }
     throw err;
@@ -95,21 +130,22 @@ export async function loadAllQueries(): Promise<ReadonlyMap<string, string>> {
       // canonical name so queries resolve identically across platforms.
       .replace(/\\/g, "/");
     const contents = await readFile(abs, "utf8");
+    diskReadCount += 1;
     cache.set(name, contents);
   }
-  initialized = true;
   return cache;
 }
 
-// Test-only hook: drop the cached state so a fresh `loadAllQueries`
-// re-reads the directory. Also clears the production-mode override so
-// each test starts in dev mode unless it explicitly opts in. Not
+// Test-only hook: drop the cached state so a fresh init re-reads
+// the directory. Also clears the production-mode override and the
+// disk-read counter so each test starts from a known state. Not
 // exported through the public surface, but kept on a separate function
 // so tests can grab it via the module's internal namespace if needed.
 export function _resetQueryCache(): void {
   cache.clear();
-  initialized = false;
+  initPromise = null;
   productionOverride = undefined;
+  diskReadCount = 0;
 }
 
 async function readQueryFile(name: string): Promise<string> {
@@ -131,7 +167,9 @@ async function readQueryFile(name: string): Promise<string> {
     );
   }
   try {
-    return await readFile(abs, "utf8");
+    const contents = await readFile(abs, "utf8");
+    diskReadCount += 1;
+    return contents;
   } catch (err) {
     if (isErrnoNotFound(err)) {
       throw new Error(

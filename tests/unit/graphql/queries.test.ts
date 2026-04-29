@@ -14,6 +14,7 @@ import {
   loadAllQueries,
   _resetQueryCache,
   _setProductionOverride,
+  _getDiskReadCount,
 } from "../../../src/graphql/queries.ts";
 
 // Reset the in-process cache between tests so production-mode
@@ -60,19 +61,65 @@ test("loadQuery: production path serves from the cache after first init", async 
   // process.env.NODE_ENV. Node's test runner runs tests concurrently,
   // and a global env mutation here would race the dev-path tests
   // above; the override flips just this one module's switch.
+  //
+  // The disk-read counter is the actual caching contract. Asserting
+  // only that two calls return equal strings would also pass on the
+  // dev path (which re-reads on each call) — that's the failure mode
+  // the round-3 review flagged. Counting reads pins the cache.
   freshCache();
   _setProductionOverride(true);
   try {
-    // Two sequential loads should both succeed and return identical
-    // contents; in prod mode the second call goes through the cache.
+    const beforeCount = _getDiskReadCount();
     const a = await loadQuery("_health/viewer");
+    const afterFirst = _getDiskReadCount();
     const b = await loadQuery("_health/viewer");
+    const afterSecond = _getDiskReadCount();
     assert.equal(a, b);
     assert.match(a, /viewer/);
+    assert.ok(
+      afterFirst > beforeCount,
+      "first call must hit disk to populate the cache",
+    );
+    assert.equal(
+      afterSecond,
+      afterFirst,
+      "second call must hit the cache, not disk",
+    );
   } finally {
     // freshCache() also clears the override, but we belt-and-brace it
     // so a future change that splits cache-reset from override-reset
     // doesn't leak prod mode into later tests.
+    _setProductionOverride(undefined);
+    freshCache();
+  }
+});
+
+test("loadQuery: production path is concurrency-safe (single shared init)", async () => {
+  // Three concurrent calls to loadQuery in production mode must all
+  // resolve correctly and must NOT each trigger their own
+  // cache-population pass. Without the shared init promise, a clear+
+  // rebuild race could leave one of the callers observing an empty
+  // cache and throwing a spurious "unknown query" error.
+  freshCache();
+  _setProductionOverride(true);
+  try {
+    const beforeCount = _getDiskReadCount();
+    const [a, b, c] = await Promise.all([
+      loadQuery("_health/viewer"),
+      loadQuery("_health/viewer"),
+      loadQuery("_health/viewer"),
+    ]);
+    const afterCount = _getDiskReadCount();
+    assert.equal(a, b);
+    assert.equal(b, c);
+    // All three concurrent callers awaited the same init, so each
+    // file is read exactly once across the trio.
+    const reads = afterCount - beforeCount;
+    assert.ok(
+      reads > 0 && reads <= 16,
+      `expected a single bounded init pass, observed ${reads} disk reads`,
+    );
+  } finally {
     _setProductionOverride(undefined);
     freshCache();
   }

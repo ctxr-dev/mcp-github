@@ -1,3 +1,13 @@
+# NOTE on `loginNames`: despite the plural field name, GitHub's
+# GraphQL schema declares this argument as `String` (single value),
+# not `[String]`. Verified by introspection on Repository.fields:
+#
+#   {"name":"loginNames","type":{"kind":"SCALAR","name":"String","ofType":null}}
+#
+# Passing a list literal (e.g. `loginNames: ["x"]`) returns
+# "argumentLiteralsIncompatible: Expected type 'String'". So we
+# call once per bot login from the handler rather than batching.
+
 query PRBotId($owner: String!, $name: String!, $login: String!) {
   repository(owner: $owner, name: $name) {
     suggestedActors(capabilities: [CAN_BE_ASSIGNED], first: 5, loginNames: $login) {

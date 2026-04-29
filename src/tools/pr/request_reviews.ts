@@ -190,7 +190,7 @@ export function registerPRRequestReviewsTool(
         botLogins.length === 0
       ) {
         throw new Error(
-          `mcp-github: gh.pr_request_reviews input: at least one of user_logins, team_logins, bot_logins must be non-empty`,
+          `mcp-github: gh.pr_request_reviews input: at least one of user_logins, team_slugs, bot_logins must be non-empty`,
         );
       }
       const coords = parseRepoSlug(args.repo, "gh.pr_request_reviews input");
@@ -301,6 +301,11 @@ async function resolveTeamIds(
 // search (humans appear in the same suggestedActors list) but
 // would fail the typename check and produce a clean "use
 // user_logins" message.
+//
+// Note: despite its plural name, `loginNames` is declared
+// `String` (single) in GitHub's schema — see the comment in
+// `_bot-id.graphql`. So we call once per supplied bot login
+// rather than batching them all in one query.
 async function resolveBotIds(
   graphql: GraphqlClient,
   coords: RepoCoords,

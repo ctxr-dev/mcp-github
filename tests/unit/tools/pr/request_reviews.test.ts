@@ -295,7 +295,7 @@ test("gh.pr_request_reviews: refuses a no-op call where every reviewer slot is e
   registerPRRequestReviewsTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ repo: "owner/repo", number: 42 }),
-    /at least one of user_logins, team_logins, bot_logins must be non-empty/,
+    /at least one of user_logins, team_slugs, bot_logins must be non-empty/,
   );
 });
 

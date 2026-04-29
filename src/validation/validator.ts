@@ -38,10 +38,25 @@ addFormats(ajv);
 // WeakMap key is stable and the cache hits on every subsequent call.
 const compileCache = new WeakMap<object, ValidateFunction>();
 
+// Test-only counter incremented on every cache miss (i.e. every
+// real ajv.compile call). Lets the unit suite assert that a schema
+// passed to validate() multiple times is compiled exactly once,
+// pinning the caching contract instead of just exercising
+// "successive calls succeed" (which would also pass under a broken
+// cache that recompiled every time).
+let compileCount = 0;
+export function _getCompileCount(): number {
+  return compileCount;
+}
+export function _resetCompileCount(): void {
+  compileCount = 0;
+}
+
 function compile(schema: Record<string, unknown>): ValidateFunction {
   let v = compileCache.get(schema);
   if (!v) {
     v = ajv.compile(schema);
+    compileCount += 1;
     compileCache.set(schema, v);
   }
   return v;

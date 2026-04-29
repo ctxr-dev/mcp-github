@@ -11,6 +11,8 @@ import assert from "node:assert/strict";
 import {
   validate,
   SchemaValidationError,
+  _getCompileCount,
+  _resetCompileCount,
 } from "../../../src/validation/validator.ts";
 
 const sampleSchema = {
@@ -75,14 +77,39 @@ test("validate: rejects unknown additional properties", () => {
 });
 
 test("validate: caches compiled validators by schema-object identity", () => {
-  // We can't observe the cache directly, but two consecutive calls
-  // with the same schema reference must succeed identically (and
-  // ajv's compile() throws on a schema it can't compile, so the
-  // first call would have failed if the cache key was unstable).
+  // Pin the actual caching contract via the _getCompileCount() test
+  // hook. Five validate() calls against the same schema reference
+  // must trigger exactly one ajv.compile call; a regression that
+  // breaks the WeakMap key (e.g. cloning the schema before lookup)
+  // would surface here as 5 compiles instead of 1.
+  // Use a fresh schema object so the count is unpolluted by any
+  // earlier validate() in this test file.
+  const freshSchema = {
+    type: "object",
+    required: ["x"],
+    properties: { x: { type: "integer" } },
+    additionalProperties: false,
+  };
+  _resetCompileCount();
   for (let i = 0; i < 5; i++) {
-    assert.deepEqual(
-      validate(sampleSchema, { name: "x", count: i }, "test"),
-      { name: "x", count: i },
-    );
+    assert.deepEqual(validate(freshSchema, { x: i }, "test"), { x: i });
   }
+  assert.equal(
+    _getCompileCount(),
+    1,
+    "ajv.compile must be called exactly once across 5 validate() calls with the same schema",
+  );
+});
+
+test("validate: a different schema reference triggers a fresh compile", () => {
+  // Belt-and-brace: confirm the WeakMap key truly is the schema
+  // object, not e.g. a JSON-stringified copy that would dedupe two
+  // structurally-identical schemas. Two distinct objects must
+  // compile twice even when their contents are equal.
+  const a = { type: "object", properties: {} };
+  const b = { type: "object", properties: {} };
+  _resetCompileCount();
+  validate(a, {}, "test");
+  validate(b, {}, "test");
+  assert.equal(_getCompileCount(), 2);
 });

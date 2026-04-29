@@ -62,12 +62,14 @@ export const sampleRepoContextResponse = {
   repository: {
     id: "R_kwDO_repo",
     labels: {
+      pageInfo: { hasNextPage: false },
       nodes: [
         { id: "LA_bug", name: "bug" },
         { id: "LA_p1", name: "p1" },
       ],
     },
     assignableUsers: {
+      pageInfo: { hasNextPage: false },
       nodes: [
         { id: "U_alice", login: "alice" },
         { id: "U_bob", login: "bob" },

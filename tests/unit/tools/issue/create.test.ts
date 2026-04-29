@@ -103,6 +103,62 @@ test("gh.issue_create: throws on an unknown assignee login before mutating", asy
   );
 });
 
+test("gh.issue_create: throws a clear truncation error when repo has >100 labels", async () => {
+  // Pin the v0.1 contract: name-based resolution only works while
+  // the first 100 labels cover the repo. A repo larger than that
+  // would silently false-fail valid label names; instead we throw
+  // an actionable error pointing at the real cause.
+  const truncated = {
+    repository: {
+      ...sampleRepoContextResponse.repository,
+      labels: {
+        pageInfo: { hasNextPage: true },
+        nodes: sampleRepoContextResponse.repository.labels.nodes,
+      },
+    },
+  };
+  const { graphql } = stubGraphqlClient({
+    "issue/_repo-context": truncated,
+    "issue/create": () => {
+      throw new Error("must not run");
+    },
+  });
+  const reg = captureRegistration();
+  registerIssueCreateTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", title: "x", labels: ["bug"] }),
+    /more than 100 labels/,
+  );
+});
+
+test("gh.issue_create: throws a clear truncation error when repo has >100 assignable users", async () => {
+  const truncated = {
+    repository: {
+      ...sampleRepoContextResponse.repository,
+      assignableUsers: {
+        pageInfo: { hasNextPage: true },
+        nodes: sampleRepoContextResponse.repository.assignableUsers.nodes,
+      },
+    },
+  };
+  const { graphql } = stubGraphqlClient({
+    "issue/_repo-context": truncated,
+    "issue/create": () => {
+      throw new Error("must not run");
+    },
+  });
+  const reg = captureRegistration();
+  registerIssueCreateTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      title: "x",
+      assignees: ["alice"],
+    }),
+    /more than 100 assignable users/,
+  );
+});
+
 test("gh.issue_create: throws when the repository is not found", async () => {
   const { graphql } = stubGraphqlClient({
     "issue/_repo-context": { repository: null },

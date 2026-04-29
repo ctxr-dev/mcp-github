@@ -46,8 +46,14 @@ export interface RepoContext {
 interface RepoContextResponse {
   repository: {
     id: string;
-    labels: { nodes: Array<{ id: string; name: string }> };
-    assignableUsers: { nodes: Array<{ id: string; login: string }> };
+    labels: {
+      pageInfo: { hasNextPage: boolean };
+      nodes: Array<{ id: string; name: string }>;
+    };
+    assignableUsers: {
+      pageInfo: { hasNextPage: boolean };
+      nodes: Array<{ id: string; login: string }>;
+    };
   } | null;
 }
 
@@ -64,10 +70,27 @@ export async function loadRepoContext(
       `mcp-github: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
     );
   }
+  // Detect truncation. With `first: 100` on each connection, a
+  // repo with more than 100 labels or assignable users would
+  // silently produce false "unknown label" / "unknown login"
+  // errors for valid inputs that happened to live on page 2+. v0.1
+  // doesn't paginate; we throw a clear, actionable error instead
+  // so the caller sees the real cause and can pre-resolve IDs
+  // externally until full pagination lands in a later PR.
+  if (data.repository.labels.pageInfo.hasNextPage) {
+    throw new Error(
+      `mcp-github: repository '${coords.owner}/${coords.name}' has more than 100 labels; ` +
+        `name-based resolution is not supported on this repo at v0.1. Use label IDs directly or paginate externally.`,
+    );
+  }
+  if (data.repository.assignableUsers.pageInfo.hasNextPage) {
+    throw new Error(
+      `mcp-github: repository '${coords.owner}/${coords.name}' has more than 100 assignable users; ` +
+        `login-based resolution is not supported on this repo at v0.1. Use user IDs directly or paginate externally.`,
+    );
+  }
   // Build name→id maps once so the per-label / per-assignee resolve
-  // is O(1). The `first: 100` page-size on each connection is the
-  // v0.1 limit; repos with more than 100 labels / collaborators will
-  // need pagination support added in a later PR.
+  // is O(1).
   const labelsByName = new Map<string, string>();
   for (const node of data.repository.labels.nodes) {
     labelsByName.set(node.name, node.id);

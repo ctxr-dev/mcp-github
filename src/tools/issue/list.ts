@@ -133,24 +133,29 @@ export function registerIssueListTool(
           `mcp-github: gh.issue_list: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
         );
       }
+      // Filter the raw GraphQL nodes BEFORE summarising. Mapping
+      // each node through `summariseIssue` allocates new arrays for
+      // labels + assignees, so doing it for items that will be
+      // dropped wastes work proportional to the page size. Inline
+      // checks on the raw shape are cheaper and only the survivors
+      // pay the summarisation cost.
       const sinceMs = args.since ? Date.parse(args.since) : NaN;
-      const filtered = data.repository.issues.nodes
-        .map(summariseIssue)
-        .filter((issue) => {
-          if (
-            args.assignee &&
-            !issue.assignees.includes(args.assignee)
-          ) {
-            return false;
+      const filtered: IssueSummary[] = [];
+      for (const issue of data.repository.issues.nodes) {
+        if (
+          args.assignee &&
+          !issue.assignees.nodes.some((a) => a.login === args.assignee)
+        ) {
+          continue;
+        }
+        if (Number.isFinite(sinceMs)) {
+          const updatedMs = Date.parse(issue.updatedAt);
+          if (Number.isFinite(updatedMs) && updatedMs < sinceMs) {
+            continue;
           }
-          if (Number.isFinite(sinceMs)) {
-            const updatedMs = Date.parse(issue.updated_at);
-            if (Number.isFinite(updatedMs) && updatedMs < sinceMs) {
-              return false;
-            }
-          }
-          return true;
-        });
+        }
+        filtered.push(summariseIssue(issue));
+      }
       const out: Output = {
         items: filtered,
         hasNextPage: data.repository.issues.pageInfo.hasNextPage,

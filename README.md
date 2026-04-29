@@ -65,7 +65,7 @@ once the surface stabilises.
 ```sh
 npm install
 npm run lint    # tsc --noEmit
-npm run build   # tsc + post-build (rename to dist/server.mjs + chmod +x)
+npm run build   # tsc + post-build (write dist/server.mjs shim → ./server.js + chmod +x)
 npm test        # node --test on tests/unit/**/*.test.ts
 ```
 

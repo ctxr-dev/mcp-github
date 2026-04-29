@@ -64,3 +64,51 @@ test("registerTool: many tools coexist and preserve insertion order", async () =
   // swaps the storage to anything unordered must surface here.
   assert.deepEqual(mod.getRegisteredToolNames(), expected);
 });
+
+// normaliseArgs is the gate every CallTool request goes through. The
+// stdio transport hands the SDK's `request.params.arguments` straight
+// here, and that field is `unknown` at the protocol level, so the
+// handler-side type contract (`Record<string, unknown>`) only holds
+// because of the coercion + rejection rules below. Pin them.
+
+test("normaliseArgs: coerces missing arguments to {}", async () => {
+  const mod = await freshServerModule();
+  assert.deepEqual(mod.normaliseArgs(undefined, "gh.x"), {});
+});
+
+test("normaliseArgs: coerces null arguments to {}", async () => {
+  const mod = await freshServerModule();
+  assert.deepEqual(mod.normaliseArgs(null, "gh.x"), {});
+});
+
+test("normaliseArgs: passes plain objects through unchanged", async () => {
+  const mod = await freshServerModule();
+  const args = { repo: "x", issue: 42 };
+  assert.equal(mod.normaliseArgs(args, "gh.x"), args);
+});
+
+test("normaliseArgs: rejects arrays with a protocol error naming the tool", async () => {
+  const mod = await freshServerModule();
+  assert.throws(
+    () => mod.normaliseArgs([1, 2, 3], "gh.create_issue"),
+    /tool 'gh\.create_issue' expected an object .*got array/,
+  );
+});
+
+test("normaliseArgs: rejects strings with the typeof in the message", async () => {
+  const mod = await freshServerModule();
+  assert.throws(
+    () => mod.normaliseArgs("not an object", "gh.x"),
+    /got string/,
+  );
+});
+
+test("normaliseArgs: rejects numbers", async () => {
+  const mod = await freshServerModule();
+  assert.throws(() => mod.normaliseArgs(42, "gh.x"), /got number/);
+});
+
+test("normaliseArgs: rejects booleans", async () => {
+  const mod = await freshServerModule();
+  assert.throws(() => mod.normaliseArgs(true, "gh.x"), /got boolean/);
+});

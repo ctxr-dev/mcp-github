@@ -108,7 +108,12 @@ export async function startServer(): Promise<void> {
 // protocol error rather than silently passed through — a handler
 // reading `args.foo` off a string would throw a less actionable
 // `TypeError` later.
-function normaliseArgs(
+//
+// Exported so the unit suite can pin the contract directly. Keeping
+// it on this module (rather than spinning out into a tiny utility
+// file) avoids inventing a new module that exists only to be
+// importable; the function only exists for `CallTool`'s benefit.
+export function normaliseArgs(
   args: unknown,
   toolName: string,
 ): Record<string, unknown> {

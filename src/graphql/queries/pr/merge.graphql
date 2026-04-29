@@ -1,0 +1,12 @@
+mutation PRMerge($input: MergePullRequestInput!) {
+  mergePullRequest(input: $input) {
+    pullRequest {
+      number
+      url
+      merged
+      mergeCommit {
+        oid
+      }
+    }
+  }
+}

@@ -36,6 +36,12 @@ const EXPECTED_TOOLS = [
   "gh.issue_close",
   "gh.issue_comment",
   "gh.issue_search",
+  "gh.pr_create",
+  "gh.pr_view",
+  "gh.pr_list",
+  "gh.pr_edit",
+  "gh.pr_comment",
+  "gh.pr_merge",
 ];
 
 function frame(payload) {

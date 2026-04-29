@@ -1,0 +1,90 @@
+mutation PREdit($input: UpdatePullRequestInput!) {
+  updatePullRequest(input: $input) {
+    pullRequest {
+      number
+      url
+      id
+      title
+      state
+      body
+      baseRefName
+      headRefName
+      isDraft
+      mergeable
+      merged
+      mergedAt
+      mergeCommit {
+        oid
+      }
+      labels(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          name
+        }
+      }
+      assignees(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          login
+        }
+      }
+      author {
+        login
+      }
+      createdAt
+      updatedAt
+      closedAt
+      reviews(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          state
+          author {
+            login
+          }
+        }
+      }
+      reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          comments(first: 0) {
+            totalCount
+          }
+        }
+      }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+              contexts(first: 100) {
+                pageInfo {
+                  hasNextPage
+                }
+                nodes {
+                  __typename
+                  ... on CheckRun {
+                    name
+                    conclusion
+                    status
+                  }
+                  ... on StatusContext {
+                    context
+                    state
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

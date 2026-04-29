@@ -1,0 +1,45 @@
+query IssueSearch($q: String!, $first: Int!, $after: String) {
+  search(query: $q, type: ISSUE, first: $first, after: $after) {
+    issueCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      __typename
+      ... on Issue {
+        number
+        url
+        id
+        title
+        state
+        body
+        labels(first: 100) {
+          pageInfo {
+            hasNextPage
+          }
+          nodes {
+            name
+          }
+        }
+        assignees(first: 100) {
+          pageInfo {
+            hasNextPage
+          }
+          nodes {
+            login
+          }
+        }
+        author {
+          login
+        }
+        createdAt
+        updatedAt
+        closedAt
+        repository {
+          nameWithOwner
+        }
+      }
+    }
+  }
+}

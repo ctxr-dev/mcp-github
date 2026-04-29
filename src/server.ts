@@ -26,6 +26,7 @@ import {
 
 import { resolvePat } from "./auth/pat.js";
 import { createAuthedRequest } from "./auth/octokit.js";
+import { createGraphqlClient } from "./graphql/client.js";
 import {
   getToolEntry,
   listToolDescriptors,
@@ -33,6 +34,7 @@ import {
   registerTool,
 } from "./registry.js";
 import { registerTestConnectionTool } from "./tools/auth/test_connection.js";
+import { registerIssueTools } from "./tools/issue/index.js";
 
 // Read the package version from the package.json next to the dist
 // tree at startup, so a single source of truth (package.json) drives
@@ -66,12 +68,14 @@ export async function startServer(): Promise<void> {
   // including auth misses.
   const pat = resolvePat();
   const authedRequest = createAuthedRequest(pat);
-  // Pass `registerTool` in (rather than letting test_connection
-  // import it) so the dependency arrow is one-way:
-  // server.ts → tools/**, never tools/** → server.ts. Avoids the
-  // TDZ-prone cycle that would otherwise form once a tool registers
-  // at module-import time.
+  // Build the canonical GraphQL client once and hand it to every
+  // domain-tool registrar. Tools never construct their own client;
+  // sharing a single instance preserves the rate-limit policy state
+  // across calls and keeps the dependency arrow one-way:
+  // server.ts → tools/**, never tools/** → server.ts.
+  const graphql = createGraphqlClient(authedRequest);
   registerTestConnectionTool(registerTool, authedRequest);
+  registerIssueTools(registerTool, graphql);
 
   const server = new Server(
     {

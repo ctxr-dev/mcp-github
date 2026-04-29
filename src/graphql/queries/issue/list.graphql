@@ -1,0 +1,53 @@
+query IssueList(
+  $owner: String!
+  $name: String!
+  $states: [IssueState!]
+  $labels: [String!]
+  $first: Int!
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    issues(
+      first: $first
+      after: $after
+      states: $states
+      labels: $labels
+      orderBy: { field: UPDATED_AT, direction: DESC }
+    ) {
+      pageInfo {
+        hasNextPage
+        endCursor
+      }
+      nodes {
+        number
+        url
+        id
+        title
+        state
+        body
+        labels(first: 100) {
+          pageInfo {
+            hasNextPage
+          }
+          nodes {
+            name
+          }
+        }
+        assignees(first: 100) {
+          pageInfo {
+            hasNextPage
+          }
+          nodes {
+            login
+          }
+        }
+        author {
+          login
+        }
+        createdAt
+        updatedAt
+        closedAt
+      }
+    }
+  }
+}

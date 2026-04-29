@@ -42,7 +42,9 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "@octokit/graphql": "^8.0.0",
     "@octokit/request": "^9.0.0",
-    "@octokit/request-error": "^7.0.0"
+    "@octokit/request-error": "^7.0.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

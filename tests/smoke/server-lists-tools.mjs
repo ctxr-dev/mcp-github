@@ -3,10 +3,12 @@
 //
 // End-to-end smoke test: spawn the freshly-built dist/server.mjs over
 // stdio, send the MCP `initialize` handshake + `tools/list`, assert
-// the registered tool surface (currently just `gh.test_connection`
-// from MCP-2). Proves the SDK wiring + auth bootstrap + tool
-// registration chain end-to-end without pulling in the unit-test
-// framework.
+// the registered tool surface (the auth probe `gh.test_connection`
+// from MCP-2 plus the seven `gh.issue_*` tools from MCP-4). The
+// `EXPECTED_TOOLS` list below is the source of truth — update it
+// whenever a new domain-tool batch lands. Proves the SDK wiring +
+// auth bootstrap + tool registration chain end-to-end without
+// pulling in the unit-test framework.
 //
 // Wire format: the MCP SDK's StdioServerTransport uses newline-
 // delimited JSON-RPC (one JSON message per `\n`-terminated line),
@@ -25,7 +27,16 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const SERVER = resolve(__dirname, "..", "..", "dist", "server.mjs");
 
-const EXPECTED_TOOLS = ["gh.test_connection"];
+const EXPECTED_TOOLS = [
+  "gh.test_connection",
+  "gh.issue_create",
+  "gh.issue_view",
+  "gh.issue_list",
+  "gh.issue_edit",
+  "gh.issue_close",
+  "gh.issue_comment",
+  "gh.issue_search",
+];
 
 function frame(payload) {
   // Newline-delimited JSON-RPC. JSON.stringify cannot emit a literal

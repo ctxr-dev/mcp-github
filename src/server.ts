@@ -4,8 +4,11 @@
 // consumers at this module, so the public API surface is only what's
 // `export`ed here: at v0.1 bootstrap that's `startServer` (called by
 // the bin shim). Tool registry helpers + the request handlers live
-// in `./registry.js`, which is intentionally NOT part of the public
-// API — tests import it directly from source.
+// in the local `registry` module (`./registry`), which is
+// intentionally NOT part of the public API — tests import it
+// directly from source. The `.js` import specifier below is the
+// canonical ESM extension TypeScript preserves into the dist tree;
+// the source file is `src/registry.ts`.
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

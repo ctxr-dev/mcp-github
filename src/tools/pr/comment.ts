@@ -7,9 +7,11 @@
 //      with the PR's GraphQL node ID as the subjectId.
 //   2. With `in_reply_to`: posts a reply on a specific review
 //      thread. Uses AddPullRequestReviewThreadReply with the
-//      thread's node ID; the caller is expected to have looked up
-//      the thread ID via the PR-view payload (review threads
-//      become accessible there in a later MCP-* PR).
+//      thread's node ID. v0.1 does not yet surface thread IDs in
+//      any of this server's outputs (PRSummary carries only a
+//      review_comments_count integer), so the caller must source
+//      the thread ID from GitHub directly until a future tool
+//      returns it. See input-schema description for details.
 //
 // The two paths are different mutations because GitHub treats
 // "issue comments" and "review comments" as distinct objects with
@@ -37,7 +39,12 @@ const inputSchema = {
       description:
         "Review-thread node ID (PullRequestReviewThread). When " +
         "supplied, the comment posts as a thread reply rather " +
-        "than an issue-level PR comment.",
+        "than an issue-level PR comment. NOTE: v0.1 does not yet " +
+        "expose thread IDs in any of this server's outputs " +
+        "(PRSummary carries only review_comments_count); the " +
+        "caller must source the ID from GitHub directly (e.g. via " +
+        "the REST or raw GraphQL API) until a future tool returns " +
+        "it.",
     },
   },
   additionalProperties: false,

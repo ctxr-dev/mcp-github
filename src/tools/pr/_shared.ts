@@ -17,11 +17,9 @@ export type { RepoCoords };
 export { repoSlugSchema };
 export const parseRepoSlug = parseIssueRepoSlug;
 
-// Lookup-by-(repo, number): returns the PR's GraphQL node ID and
-// the headRepository's id (for tools that need to reference the
-// fork repo, e.g. when editing a PR opened from a fork). Used by
-// the three mutations that operate on an existing PR (edit,
-// comment, merge).
+// Lookup-by-(repo, number): returns the PR's GraphQL node ID.
+// Used by the three mutations that operate on an existing PR
+// (edit, comment, merge).
 interface PRLookupResponse {
   repository: {
     pullRequest: { id: string } | null;

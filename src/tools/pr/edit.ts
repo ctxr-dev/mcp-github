@@ -95,27 +95,23 @@ export function registerPREditTool(
 }
 
 // When the caller supplies `draft`, we run the title/body/base
-// edit (if any of those fields were also set) AND the
-// draft-toggle mutation. The draft toggle is intentionally
-// applied AFTER the field edits so the final returned PR carries
-// the draft state the caller asked for, rather than the
-// pre-toggle one.
+// edit first (if any of those fields were also set) AND the
+// draft-toggle mutation second. Order matters: the toggle's
+// pullRequest payload becomes the response, so a same-call
+// `title + draft` edit returns a PR carrying both the new title
+// AND the new draft state. The pr/edit response is intentionally
+// discarded.
 async function applyEditWithDraftToggle(
   graphql: GraphqlClient,
   pullRequestId: string,
   input: Record<string, unknown>,
   draft: boolean,
 ): Promise<EditResponse> {
-  // If the caller only changed `draft`, the input has just
-  // `pullRequestId` — skip the no-op pr/edit call.
-  let result: EditResponse;
+  // Only run pr/edit when the caller changed fields besides
+  // `draft`. The input always carries `pullRequestId`, so a
+  // length of 1 means draft-only and we skip the no-op call.
   if (Object.keys(input).length > 1) {
-    result = await graphql<EditResponse>("pr/edit", { input });
-  } else {
-    // Synthesize a "no-op edit" result that matches the toggle
-    // mutation's pullRequest payload shape so the caller below
-    // can read it uniformly. Replaced with the toggle response.
-    result = { updatePullRequest: { pullRequest: {} as RawPR } };
+    await graphql<EditResponse>("pr/edit", { input });
   }
   const toggleQuery = draft ? "pr/_to-draft" : "pr/_ready-for-review";
   const toggleResp = await graphql<{

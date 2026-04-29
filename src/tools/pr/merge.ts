@@ -40,7 +40,14 @@ const inputSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["merged", "url"],
+  // sha + number are documented contract: the handler always
+  // emits them (sha is null only when GitHub returns no
+  // mergeCommit, e.g. for rebase merges). Listing them in
+  // `required` means an accidental omission (e.g. a future
+  // refactor that drops a field from the GraphQL response) trips
+  // output validation here rather than landing on consumers as a
+  // partial payload.
+  required: ["merged", "sha", "url", "number"],
   properties: {
     merged: { type: "boolean" },
     sha: { type: ["string", "null"] },

@@ -35,11 +35,20 @@ export class MissingPatError extends Error {
 // `env` is parameterised (defaulting to `process.env`) so unit tests can
 // inject a synthetic environment without mutating real `process.env`,
 // which is fragile in parallel test runners.
+//
+// We trim the raw env value before checking emptiness: a value of
+// "   " (whitespace only) is almost certainly a misconfigured CI
+// secret rather than a real token, and accepting it would surface as
+// a confusing 401 from GitHub later. Treat whitespace-only as unset
+// and fall through to the next env var, the same as missing/empty.
 export function resolvePat(env: NodeJS.ProcessEnv = process.env): string {
   for (const key of ENV_VARS) {
     const v = env[key];
-    if (typeof v === "string" && v.length > 0) {
-      return v;
+    if (typeof v === "string") {
+      const trimmed = v.trim();
+      if (trimmed.length > 0) {
+        return trimmed;
+      }
     }
   }
   throw new MissingPatError();

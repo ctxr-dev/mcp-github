@@ -19,7 +19,6 @@
 
 import { RequestError } from "@octokit/request-error";
 import type { AuthedRequest } from "../../auth/octokit.js";
-import { registerTool } from "../../server.js";
 
 const VIEWER_QUERY = "query { viewer { login } }";
 
@@ -33,12 +32,30 @@ interface ViewerGraphqlPayload {
   errors?: Array<{ message?: string }>;
 }
 
-// Exposed (rather than registered at module-import time) so the server
-// can pass in the resolved authed client. Tests can call `testConnection`
-// directly with a synthetic `AuthedRequest`, and the full registration
-// path is exercised in the smoke test against the built dist.
-export function registerTestConnectionTool(authedRequest: AuthedRequest): void {
-  registerTool("gh.test_connection", {
+// Shape of a tool-registry entry. Inlined here (rather than imported
+// from server.ts) so this module has no compile-time dependency on
+// the server module: server.ts → test_connection.ts is the only
+// import direction, which keeps the registry-loading sequence
+// linear at module-init time.
+interface ToolEntryShape {
+  description: string;
+  inputSchema: Record<string, unknown>;
+  handler: (args: Record<string, unknown>) => Promise<unknown>;
+}
+type RegisterToolFn = (name: string, entry: ToolEntryShape) => void;
+
+// Caller passes in `register` (typically server.ts's `registerTool`)
+// plus the resolved authed client. Decoupling the registration
+// callable from a static import breaks the would-be cycle where
+// server.ts imports this module while this module imports
+// `registerTool` back from server.ts. The same shape covers any
+// future "the tool registers itself" pattern without re-introducing
+// the cycle.
+export function registerTestConnectionTool(
+  register: RegisterToolFn,
+  authedRequest: AuthedRequest,
+): void {
+  register("gh.test_connection", {
     description:
       "Verify GitHub auth health. Runs `{ viewer { login } }` and " +
       "returns the authenticated user's login plus the OAuth scopes " +

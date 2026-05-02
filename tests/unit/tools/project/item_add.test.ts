@@ -158,3 +158,20 @@ test("gh.project_item_add: rejects malformed content_url", async () => {
     /not a recognised github\.com issue or pull URL/,
   );
 });
+
+test("gh.project_item_add: rejects URL with garbage tail after the issue number", async () => {
+  // `.../issues/123abc` previously parsed as 123 because the
+  // regex didn't anchor a boundary after the numeric segment.
+  // Pin the rejection so a typo can never silently resolve to
+  // the wrong issue.
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerProjectItemAddTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      project_id: "PVT_X",
+      content_url: "https://github.com/o/r/issues/123abc",
+    }),
+    /not a recognised github\.com issue or pull URL/,
+  );
+});

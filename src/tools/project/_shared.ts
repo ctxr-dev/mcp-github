@@ -107,8 +107,13 @@ export interface ContentRef {
   type: "issue" | "pullRequest";
 }
 
+// Anchor after the numeric segment so `/issues/123abc` doesn't
+// parse as `123` and silently resolve the wrong content. Allow
+// end-of-string OR a real URL boundary character (`/`, `?`, `#`)
+// so the common `/issues/123#issuecomment-1` and
+// `/issues/123?foo=bar` shapes still match.
 const URL_RE =
-  /^https:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/(issues|pull)\/(\d+)/;
+  /^https:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)\/(issues|pull)\/(\d+)(?:[/?#]|$)/;
 
 export function parseContentUrl(url: string): ContentRef | null {
   const m = URL_RE.exec(url);

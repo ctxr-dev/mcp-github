@@ -1,0 +1,28 @@
+mutation PRRequestReviews($input: RequestReviewsInput!) {
+  requestReviews(input: $input) {
+    pullRequest {
+      reviewRequests(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          requestedReviewer {
+            __typename
+            ... on User {
+              login
+            }
+            ... on Bot {
+              login
+            }
+            ... on Team {
+              slug
+            }
+            ... on Mannequin {
+              login
+            }
+          }
+        }
+      }
+    }
+  }
+}

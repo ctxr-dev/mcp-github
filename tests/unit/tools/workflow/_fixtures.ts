@@ -13,9 +13,14 @@ export interface RestCall {
   params: Record<string, unknown>;
 }
 
+// Envelope every fixture goes through when a test wants to
+// pin a non-200 status. `status` is REQUIRED so the runtime
+// guard `isStubResponse()` and the static type agree on the
+// invariant — a `{ data: ... }`-only literal is treated as raw
+// data, never as a malformed envelope.
 interface StubResponse {
   data: unknown;
-  status?: number;
+  status: number;
 }
 
 // Wrap a fixture in `withStatus` to override the default 200
@@ -71,7 +76,7 @@ export function stubAuthedRequest(
     if (isStubResponse(resolved)) {
       return {
         data: resolved.data,
-        status: resolved.status ?? 200,
+        status: resolved.status,
         headers: {},
         url: route,
       };

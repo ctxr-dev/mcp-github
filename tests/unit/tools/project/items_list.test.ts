@@ -99,13 +99,14 @@ test("gh.project_items_list: flattens five typed value variants onto the uniform
       content_type: string;
       content_repo: string | null;
       content_number: number | null;
-      content_title: string;
+      content_title: string | null;
       field_values: Array<{
         field_id: string;
         field_name: string;
         type: string;
         value: string | number;
       }>;
+      field_values_truncated: boolean;
     }>;
     hasNextPage: boolean;
   };
@@ -115,6 +116,7 @@ test("gh.project_items_list: flattens five typed value variants onto the uniform
   assert.equal(item.content_repo, "o/r");
   assert.equal(item.content_number, 42);
   assert.equal(item.content_title, "Sample issue");
+  assert.equal(item.field_values_truncated, false);
   // Five flattened entries (the LabelValue is dropped).
   assert.equal(item.field_values.length, 5);
   assert.deepEqual(
@@ -213,6 +215,48 @@ test("gh.project_items_list: deleted single-select option surfaces value '' inst
     items: Array<{ field_values: Array<{ value: string | number }> }>;
   };
   assert.equal(out.items[0]?.field_values[0]?.value, "");
+});
+
+test("gh.project_items_list: field_values_truncated true when fieldValues page has more results", async () => {
+  // GraphQL fieldValues caps at 50 per item. Surface the
+  // truncation flag from the per-item pageInfo.hasNextPage so a
+  // caller doesn't operate on a partial flat-value set without
+  // realising it.
+  const { graphql } = stubGraphqlClient({
+    "project/items_list": {
+      node: {
+        __typename: "ProjectV2",
+        items: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            {
+              id: "PVTI_big",
+              updatedAt: "2026-04-29T00:00:00Z",
+              content: null,
+              fieldValues: {
+                pageInfo: { hasNextPage: true },
+                nodes: [
+                  {
+                    __typename: "ProjectV2ItemFieldTextValue",
+                    text: "first of many",
+                    field: fieldNotes,
+                  },
+                ],
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
+  const reg = captureRegistration();
+  registerProjectItemsListTool(reg.register, graphql);
+  const out = (await reg.entry.handler({ project_id: "PVT_X" })) as {
+    items: Array<{ field_values_truncated: boolean; content_title: string | null }>;
+  };
+  assert.equal(out.items[0]?.field_values_truncated, true);
+  // Unknown content (raw.content === null) → content_title null.
+  assert.equal(out.items[0]?.content_title, null);
 });
 
 test("gh.project_items_list: throws when project_id resolves to a non-ProjectV2 node", async () => {

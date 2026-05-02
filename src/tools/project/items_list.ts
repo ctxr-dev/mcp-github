@@ -52,9 +52,11 @@ const fieldValueSchema = {
     field_name: { type: "string" },
     type: projectFieldTypeSchema,
     // The flattened value: text → string, number → number,
-    // date → ISO string, single-select → option name (also
-    // returns option_id alongside), iteration → title (also
-    // returns iteration_id alongside).
+    // date → ISO string, single-select → option name,
+    // iteration → iteration title. Single-select option IDs
+    // (needed for `gh.project_item_update_field`) live on the
+    // field definitions returned by `gh.project_field_list`,
+    // not on items.
     value: { type: ["string", "number"] },
   },
   additionalProperties: false,
@@ -67,8 +69,17 @@ interface Item {
   content_repo: string | null;
   content_number: number | null;
   content_url: string | null;
-  content_title: string;
+  // string when the underlying content carries a title
+  // (Issue / PullRequest / DraftIssue), null when the item has
+  // no resolvable content (Unknown).
+  content_title: string | null;
   field_values: FieldValue[];
+  // True when the project item has more than `field_values.length`
+  // field values on GitHub's side (the GraphQL fieldValues
+  // connection capped at 50 per item). Use `gh.project_field_list`
+  // to enumerate the project's full field set if the truncation
+  // matters for your use-case.
+  field_values_truncated: boolean;
 }
 
 const itemSchema = {
@@ -82,6 +93,7 @@ const itemSchema = {
     "content_url",
     "content_title",
     "field_values",
+    "field_values_truncated",
   ],
   properties: {
     id: { type: "string" },
@@ -93,8 +105,9 @@ const itemSchema = {
     content_repo: { type: ["string", "null"] },
     content_number: { type: ["integer", "null"] },
     content_url: { type: ["string", "null"] },
-    content_title: { type: "string" },
+    content_title: { type: ["string", "null"] },
     field_values: { type: "array", items: fieldValueSchema },
+    field_values_truncated: { type: "boolean" },
   },
   additionalProperties: false,
 } as const;
@@ -219,7 +232,10 @@ export function registerProjectItemsListTool(
       "typename. Date / number / text values pass through; " +
       "single-select returns the option name as the value " +
       "(consult `gh.project_field_list` for option IDs); " +
-      "iteration returns the iteration title.",
+      "iteration returns the iteration title. Each item carries " +
+      "`field_values_truncated: true` when the GraphQL 50-cap on " +
+      "fieldValues hides additional values; `content_title` is " +
+      "null for items whose content is no longer resolvable.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(inputSchema, raw, "gh.project_items_list input");
@@ -254,7 +270,7 @@ function buildItem(raw: RawItem): Item {
   let content_repo: string | null = null;
   let content_number: number | null = null;
   let content_url: string | null = null;
-  let content_title = "";
+  let content_title: string | null = null;
   if (raw.content) {
     const c = raw.content as RawContent;
     if (c.__typename === "Issue" || c.__typename === "PullRequest") {
@@ -278,6 +294,11 @@ function buildItem(raw: RawItem): Item {
     content_url,
     content_title,
     field_values: raw.fieldValues.nodes.flatMap(flattenFieldValue),
+    // Surface the per-item fieldValues pagination flag so callers
+    // can detect when a project item has more field values than
+    // GraphQL returned in a single page (cap is 50). Without this,
+    // truncation would be silent.
+    field_values_truncated: raw.fieldValues.pageInfo.hasNextPage,
   };
 }
 

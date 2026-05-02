@@ -163,11 +163,15 @@ export async function lookupContentIdByUrl(
   return id;
 }
 
-// Project v2 field types we surface. Excludes the derived ones
-// (ASSIGNEES, LABELS, MILESTONE, etc.) which are read-only
-// projections of the underlying issue/PR — they're returned in
-// items_list responses but you don't update them via the
-// project field-value mutation.
+// Project v2 field types we surface. Both user-defined types
+// (TEXT / NUMBER / DATE / SINGLE_SELECT / ITERATION) and the
+// derived ones (ASSIGNEES, LABELS, MILESTONE, REPOSITORY, TITLE,
+// REVIEWERS, TRACKED_BY, TRACKS, LINKED_PULL_REQUESTS,
+// PARENT_ISSUE, SUB_ISSUES_PROGRESS) are returned by
+// `gh.project_field_list` and `gh.project_items_list`. The
+// derived ones are read-only projections of the underlying
+// issue/PR; they cannot be set via `gh.project_item_update_field`,
+// which only accepts the five user-defined types.
 export type ProjectFieldType =
   | "TEXT"
   | "NUMBER"

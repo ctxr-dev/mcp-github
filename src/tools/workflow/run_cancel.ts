@@ -74,8 +74,9 @@ export function registerWorkflowRunCancelTool(
     handler: async (raw) => {
       const args = validate<Input>(inputSchema, raw, "gh.workflow_run_cancel input");
       const coords = parseRepoSlug(args.repo, "gh.workflow_run_cancel input");
+      let response;
       try {
-        await authedRequest(
+        response = await authedRequest(
           "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel",
           { owner: coords.owner, repo: coords.name, run_id: args.run_id },
         );
@@ -96,6 +97,16 @@ export function registerWorkflowRunCancelTool(
           );
         }
         throw err;
+      }
+      // Match the documented contract: \`cancelled: true\` corresponds
+      // to GitHub's HTTP 202 Accepted. Any non-202 success status
+      // (which would be unusual but technically possible) gets
+      // surfaced as a structured error so the output never claims
+      // a cancel was accepted when the response shape disagrees.
+      if (response.status !== 202) {
+        throw new Error(
+          `mcp-github: gh.workflow_run_cancel: unexpected HTTP ${response.status} on cancel; expected 202 Accepted`,
+        );
       }
       const out: Output = { cancelled: true, run_id: args.run_id };
       return validate<Output>(outputSchema, out, "gh.workflow_run_cancel output");

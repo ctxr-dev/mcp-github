@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 
 import { registerWorkflowRunCancelTool } from "../../../../src/tools/workflow/run_cancel.ts";
 import type { ToolEntry } from "../../../../src/registry.ts";
-import { httpError, stubAuthedRequest } from "./_fixtures.ts";
+import { httpError, stubAuthedRequest, withStatus } from "./_fixtures.ts";
 
 function captureRegistration() {
   let entry: ToolEntry | undefined;
@@ -30,8 +30,8 @@ function captureRegistration() {
 test("gh.workflow_run_cancel: POSTs to the cancel endpoint, returns {cancelled: true, run_id}", async () => {
   const { authedRequest, calls } = stubAuthedRequest({
     // REST returns an empty body on 202 Accepted; we don't
-    // read it.
-    "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel": {},
+    // read it. The handler asserts on the 202 status itself.
+    "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel": withStatus(202, {}),
   });
   const reg = captureRegistration();
   registerWorkflowRunCancelTool(reg.register, authedRequest);
@@ -42,6 +42,22 @@ test("gh.workflow_run_cancel: POSTs to the cancel endpoint, returns {cancelled: 
   assert.deepEqual(out, { cancelled: true, run_id: 5_000_000_001 });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.params.run_id, 5_000_000_001);
+});
+
+test("gh.workflow_run_cancel: non-202 success status throws structured error", async () => {
+  // Defensive: GitHub's contract is 202 Accepted on cancel. Any
+  // other 2xx success would mean the API changed shape; we
+  // refuse to claim cancelled:true on a response we don't
+  // recognise.
+  const { authedRequest } = stubAuthedRequest({
+    "POST /repos/{owner}/{repo}/actions/runs/{run_id}/cancel": withStatus(200, {}),
+  });
+  const reg = captureRegistration();
+  registerWorkflowRunCancelTool(reg.register, authedRequest);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", run_id: 1 }),
+    /unexpected HTTP 200 on cancel; expected 202 Accepted/,
+  );
 });
 
 test("gh.workflow_run_cancel: 404 → 'run not found'", async () => {

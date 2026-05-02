@@ -18,11 +18,29 @@ interface StubResponse {
   status?: number;
 }
 
+// Wrap a fixture in `withStatus` to override the default 200
+// response status — used by the cancel test where the handler
+// asserts on a specific HTTP 202.
+export function withStatus(status: number, data: unknown): StubResponse {
+  return { data, status };
+}
+
+function isStubResponse(v: unknown): v is StubResponse {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "data" in v &&
+    "status" in v &&
+    typeof (v as { status: unknown }).status === "number"
+  );
+}
+
 // Build an `authedRequest` stub that dispatches by route string.
-// Each entry is either a value (returned directly as `data`) or
-// a function (called with the request params). Routes outside
-// the fixture map throw — every test must declare every endpoint
-// its handler will hit.
+// Each entry is either a value (returned directly as `data`), a
+// `{ data, status }` envelope (via `withStatus`), or a function
+// (called with the request params, returning either shape).
+// Routes outside the fixture map throw — every test must declare
+// every endpoint its handler will hit.
 export function stubAuthedRequest(
   fixtures: Record<
     string,
@@ -42,15 +60,23 @@ export function stubAuthedRequest(
       );
     }
     const entry = fixtures[route];
-    let data: unknown;
+    let resolved: unknown;
     if (typeof entry === "function") {
-      data = await (entry as (p: Record<string, unknown>) => unknown)(
+      resolved = await (entry as (p: Record<string, unknown>) => unknown)(
         params,
       );
     } else {
-      data = entry;
+      resolved = entry;
     }
-    return { data, status: 200, headers: {}, url: route } as StubResponse;
+    if (isStubResponse(resolved)) {
+      return {
+        data: resolved.data,
+        status: resolved.status ?? 200,
+        headers: {},
+        url: route,
+      };
+    }
+    return { data: resolved, status: 200, headers: {}, url: route };
   }) as unknown as AuthedRequest;
   return { authedRequest, calls };
 }

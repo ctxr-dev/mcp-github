@@ -44,13 +44,40 @@ test("gh.workflow_run_jobs: omitting attempt_number hits the latest-attempt rout
   })) as {
     items: Array<{ id: number; steps: Array<{ name: string; state: string }> }>;
     total: number;
+    hasNextPage: boolean;
+    page: number;
   };
   assert.equal(out.total, 1);
   assert.equal(out.items[0]?.id, 9_000_000_001);
   assert.equal(out.items[0]?.steps.length, 2);
   assert.equal(out.items[0]?.steps[0]?.name, "Set up job");
   assert.equal(out.items[0]?.steps[0]?.state, "success");
+  assert.equal(out.hasNextPage, false);
+  assert.equal(out.page, 1);
   assert.equal(calls[0]?.route, "GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs");
+});
+
+test("gh.workflow_run_jobs: page/perPage forwarded; hasNextPage true when more results exist", async () => {
+  const { authedRequest, calls } = stubAuthedRequest({
+    "GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs": {
+      total_count: 250,
+      jobs: [sampleRawJob],
+    },
+  });
+  const reg = captureRegistration();
+  registerWorkflowRunJobsTool(reg.register, authedRequest);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    run_id: 5_000_000_001,
+    page: 2,
+    perPage: 50,
+  })) as { total: number; hasNextPage: boolean; page: number };
+  assert.equal(calls[0]?.params.page, 2);
+  assert.equal(calls[0]?.params.per_page, 50);
+  assert.equal(out.total, 250);
+  // page 2 of 50 = 100 < 250, so there is more
+  assert.equal(out.hasNextPage, true);
+  assert.equal(out.page, 2);
 });
 
 test("gh.workflow_run_jobs: attempt_number switches to the dedicated attempts route", async () => {

@@ -70,10 +70,22 @@ const jobSummarySchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["run", "jobs"],
+  required: ["run", "jobs", "jobs_total", "jobs_has_next_page"],
   properties: {
     run: runSummarySchema,
     jobs: { type: "array", items: jobSummarySchema },
+    jobs_total: {
+      type: "integer",
+      minimum: 0,
+      description: "Total jobs across all pages (`total_count` from the API).",
+    },
+    jobs_has_next_page: {
+      type: "boolean",
+      description:
+        "true when the run has more jobs than this single page returned " +
+        "(jobs are capped at 100 per page). Use `gh.workflow_run_jobs` to " +
+        "paginate through the rest.",
+    },
   },
   additionalProperties: false,
 } as const;
@@ -88,6 +100,8 @@ interface Input {
 interface Output {
   run: RunSummary;
   jobs: JobSummary[];
+  jobs_total: number;
+  jobs_has_next_page: boolean;
 }
 
 interface RawJobStep {
@@ -120,7 +134,9 @@ export function registerWorkflowRunViewTool(
     description:
       "Fetch a single Actions workflow run plus a summary of its " +
       "jobs (id, state, timestamps, step counts). Two REST calls " +
-      "under the hood: GET .../runs/:id and GET .../runs/:id/jobs.",
+      "under the hood: GET .../runs/:id and GET .../runs/:id/jobs. " +
+      "Jobs are capped at 100 per page; check `jobs_has_next_page` " +
+      "and use `gh.workflow_run_jobs` to paginate the remainder.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(inputSchema, raw, "gh.workflow_run_view input");
@@ -146,9 +162,13 @@ export function registerWorkflowRunViewTool(
         "GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs",
         { owner: coords.owner, repo: coords.name, run_id: args.run_id, per_page: 100 },
       );
+      const jobsData = jobsResp.data as JobsResponse;
+      const jobs = (jobsData.jobs ?? []).map(summariseJob);
       const out: Output = {
         run: summariseRun(runResp.data as RawRun),
-        jobs: ((jobsResp.data as JobsResponse).jobs ?? []).map(summariseJob),
+        jobs,
+        jobs_total: jobsData.total_count,
+        jobs_has_next_page: jobsData.total_count > jobs.length,
       };
       return validate<Output>(outputSchema, out, "gh.workflow_run_view output");
     },

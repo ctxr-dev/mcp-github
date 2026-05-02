@@ -33,6 +33,19 @@ const inputSchema = {
       description:
         "Attempt number to read jobs for. Omit for the latest attempt.",
     },
+    perPage: {
+      type: "integer",
+      minimum: 1,
+      maximum: 100,
+      description:
+        "Page size (1-100). Defaults to 100. The REST jobs endpoint " +
+        "is page-paginated; pass `page` to advance.",
+    },
+    page: {
+      type: "integer",
+      minimum: 1,
+      description: "1-indexed page number. Defaults to 1.",
+    },
   },
   additionalProperties: false,
 } as const;
@@ -96,10 +109,12 @@ const jobDetailSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["items", "total"],
+  required: ["items", "total", "hasNextPage", "page"],
   properties: {
     items: { type: "array", items: jobDetailSchema },
     total: { type: "integer", minimum: 0 },
+    hasNextPage: { type: "boolean" },
+    page: { type: "integer", minimum: 1 },
   },
   additionalProperties: false,
 } as const;
@@ -110,11 +125,15 @@ interface Input {
   repo: string;
   run_id: number;
   attempt_number?: number;
+  perPage?: number;
+  page?: number;
 }
 
 interface Output {
   items: JobDetail[];
   total: number;
+  hasNextPage: boolean;
+  page: number;
 }
 
 interface RawStep {
@@ -152,38 +171,45 @@ export function registerWorkflowRunJobsTool(
     description:
       "List jobs for a workflow run with step-level details. Use " +
       "`attempt_number` to read jobs for a specific attempt; omit " +
-      "for the latest. Caps at 100 jobs (the REST endpoint's max).",
+      "for the latest. Page-paginated via `page`/`perPage` (max 100); " +
+      "check `hasNextPage` to detect more results.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(inputSchema, raw, "gh.workflow_run_jobs input");
       const coords = parseRepoSlug(args.repo, "gh.workflow_run_jobs input");
-      const params: Record<string, string | number> = {
-        owner: coords.owner,
-        repo: coords.name,
-        run_id: args.run_id,
-        per_page: 100,
-      };
+      const perPage = args.perPage ?? 100;
+      const page = args.page ?? 1;
       // The REST endpoint distinguishes between
       //   GET .../runs/:id/jobs            → latest attempt
       //   GET .../runs/:id/attempts/:n/jobs → specific attempt
       // (`attempt_number` as a query param on the first URL was
       // never honoured; use the dedicated route instead).
-      const url =
-        args.attempt_number === undefined
-          ? "GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs"
-          : "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs";
-      if (args.attempt_number !== undefined) {
-        params["attempt_number"] = args.attempt_number;
-      }
       let response;
       try {
-        // Same cast pattern as runs_list: Octokit's request
-        // narrows on the route string and our params object is
-        // too dynamic for that narrowing.
-        response = await authedRequest(
-          url,
-          params as unknown as { owner: string; repo: string; run_id: number },
-        );
+        if (args.attempt_number === undefined) {
+          response = await authedRequest(
+            "GET /repos/{owner}/{repo}/actions/runs/{run_id}/jobs",
+            {
+              owner: coords.owner,
+              repo: coords.name,
+              run_id: args.run_id,
+              per_page: perPage,
+              page,
+            },
+          );
+        } else {
+          response = await authedRequest(
+            "GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}/jobs",
+            {
+              owner: coords.owner,
+              repo: coords.name,
+              run_id: args.run_id,
+              attempt_number: args.attempt_number,
+              per_page: perPage,
+              page,
+            },
+          );
+        }
       } catch (err) {
         if (getStatus(err) === 404) {
           throw new Error(
@@ -195,9 +221,14 @@ export function registerWorkflowRunJobsTool(
         throw err;
       }
       const data = response.data as JobsResponse;
+      const items = (data.jobs ?? []).map(buildJobDetail);
       const out: Output = {
-        items: (data.jobs ?? []).map(buildJobDetail),
+        items,
         total: data.total_count,
+        // Same hasNextPage approach as runs_list: page * per_page
+        // < total_count means there's another page available.
+        hasNextPage: page * perPage < data.total_count,
+        page,
       };
       return validate<Output>(outputSchema, out, "gh.workflow_run_jobs output");
     },

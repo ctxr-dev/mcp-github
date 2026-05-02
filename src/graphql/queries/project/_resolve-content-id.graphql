@@ -1,0 +1,15 @@
+# Resolve a content_url's (owner, repo, number, kind) → GraphQL
+# node ID for `addProjectV2ItemById`. The handler parses the
+# URL upstream and selects either `issue` or `pullRequest` from
+# the response; only one of them will be non-null on a real URL.
+
+query ContentIdByOwnerRepoNumber($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      id
+    }
+    pullRequest(number: $number) {
+      id
+    }
+  }
+}

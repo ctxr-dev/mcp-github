@@ -37,6 +37,7 @@ import { registerTestConnectionTool } from "./tools/auth/test_connection.js";
 import { registerIssueTools } from "./tools/issue/index.js";
 import { registerLabelTools } from "./tools/label/index.js";
 import { registerPRTools } from "./tools/pr/index.js";
+import { registerProjectTools } from "./tools/project/index.js";
 
 // Read the package version from the package.json next to the dist
 // tree at startup, so a single source of truth (package.json) drives
@@ -80,6 +81,7 @@ export async function startServer(): Promise<void> {
   registerIssueTools(registerTool, graphql);
   registerLabelTools(registerTool, graphql);
   registerPRTools(registerTool, graphql);
+  registerProjectTools(registerTool, graphql);
 
   const server = new Server(
     {

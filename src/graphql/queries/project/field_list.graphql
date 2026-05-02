@@ -1,0 +1,55 @@
+# Reads project fields via `node(id: $projectId)` with a
+# `... on ProjectV2` selection. Going through `node` means we
+# don't have to know whether the project is owned by an
+# Organization or a User — the polymorphic node lookup handles
+# both.
+#
+# `first: 100` is the GraphQL cap. Projects with more than 100
+# fields are vanishingly rare in practice; field_list returns
+# `pageInfo.hasNextPage` so consumers can still detect
+# truncation.
+
+query ProjectFieldList($projectId: ID!) {
+  node(id: $projectId) {
+    __typename
+    ... on ProjectV2 {
+      fields(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          __typename
+          ... on ProjectV2Field {
+            id
+            name
+            dataType
+          }
+          ... on ProjectV2SingleSelectField {
+            id
+            name
+            dataType
+            options {
+              id
+              name
+            }
+          }
+          ... on ProjectV2IterationField {
+            id
+            name
+            dataType
+            configuration {
+              iterations {
+                id
+                title
+              }
+              completedIterations {
+                id
+                title
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

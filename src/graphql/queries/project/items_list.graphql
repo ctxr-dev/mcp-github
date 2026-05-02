@@ -1,0 +1,112 @@
+# Paginated items in a project, with field values populated.
+# Each item carries:
+#   - the underlying content (issue / PR / draftIssue) — kind
+#     and minimal identification (URL + title) so the consumer
+#     can correlate without an extra round-trip.
+#   - fieldValues: a union of typed values per field. We select
+#     enough variants that the handler can flatten each one
+#     onto a `{field_id, field_name, type, value}` shape.
+#
+# `first: 50` is the GraphQL cap on Project v2 items connection;
+# the cursor-based pagination uses the `endCursor` returned
+# alongside.
+
+query ProjectItemsList($projectId: ID!, $first: Int!, $after: String) {
+  node(id: $projectId) {
+    __typename
+    ... on ProjectV2 {
+      items(first: $first, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          updatedAt
+          content {
+            __typename
+            ... on Issue {
+              number
+              url
+              title
+              repository {
+                nameWithOwner
+              }
+            }
+            ... on PullRequest {
+              number
+              url
+              title
+              repository {
+                nameWithOwner
+              }
+            }
+            ... on DraftIssue {
+              title
+            }
+          }
+          fieldValues(first: 50) {
+            pageInfo {
+              hasNextPage
+            }
+            nodes {
+              __typename
+              ... on ProjectV2ItemFieldTextValue {
+                text
+                field {
+                  ... on ProjectV2FieldCommon {
+                    id
+                    name
+                    dataType
+                  }
+                }
+              }
+              ... on ProjectV2ItemFieldNumberValue {
+                number
+                field {
+                  ... on ProjectV2FieldCommon {
+                    id
+                    name
+                    dataType
+                  }
+                }
+              }
+              ... on ProjectV2ItemFieldDateValue {
+                date
+                field {
+                  ... on ProjectV2FieldCommon {
+                    id
+                    name
+                    dataType
+                  }
+                }
+              }
+              ... on ProjectV2ItemFieldSingleSelectValue {
+                optionId
+                name
+                field {
+                  ... on ProjectV2FieldCommon {
+                    id
+                    name
+                    dataType
+                  }
+                }
+              }
+              ... on ProjectV2ItemFieldIterationValue {
+                iterationId
+                title
+                field {
+                  ... on ProjectV2FieldCommon {
+                    id
+                    name
+                    dataType
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

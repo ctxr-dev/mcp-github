@@ -50,6 +50,10 @@ const EXPECTED_TOOLS = [
   "gh.pr_comment",
   "gh.pr_merge",
   "gh.pr_request_reviews",
+  "gh.workflow_runs_list",
+  "gh.workflow_run_view",
+  "gh.workflow_run_cancel",
+  "gh.workflow_run_jobs",
 ];
 
 function frame(payload) {

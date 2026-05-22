@@ -1,0 +1,13 @@
+mutation OrgIssueTypeCreate($input: CreateIssueTypeInput!) {
+  createIssueType(input: $input) {
+    issueType {
+      id
+      name
+      color
+      description
+      isEnabled
+      createdAt
+      updatedAt
+    }
+  }
+}

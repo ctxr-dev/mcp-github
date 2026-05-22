@@ -14,6 +14,7 @@ import { registerIssueCreateTool } from "./create.js";
 import { registerIssueEditTool } from "./edit.js";
 import { registerIssueListTool } from "./list.js";
 import { registerIssueSearchTool } from "./search.js";
+import { registerIssueSetIssueTypeTool } from "./set_issue_type.js";
 import { registerIssueViewTool } from "./view.js";
 
 type RegisterToolFn = (name: string, entry: ToolEntry) => void;
@@ -29,4 +30,5 @@ export function registerIssueTools(
   registerIssueCloseTool(register, graphql);
   registerIssueCommentTool(register, graphql);
   registerIssueSearchTool(register, graphql);
+  registerIssueSetIssueTypeTool(register, graphql);
 }

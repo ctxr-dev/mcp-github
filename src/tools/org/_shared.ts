@@ -83,3 +83,62 @@ export const orgLoginSchema = {
   pattern: "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
   description: "Organisation login (e.g. `my-org`).",
 } as const;
+
+// User-facing color values, lowercase to match the REST shape
+// returned by `gh.org_issue_types_list`. GraphQL's
+// `IssueTypeColor` enum uses the uppercase form; `toGraphqlColor`
+// converts at the boundary so the tool's user-facing API stays
+// consistent across REST + GraphQL paths.
+export const ISSUE_TYPE_COLORS = [
+  "gray",
+  "blue",
+  "green",
+  "yellow",
+  "orange",
+  "red",
+  "pink",
+  "purple",
+] as const;
+
+export type IssueTypeColor = (typeof ISSUE_TYPE_COLORS)[number];
+
+export const issueTypeColorSchema = {
+  type: "string",
+  enum: ISSUE_TYPE_COLORS,
+} as const;
+
+export function toGraphqlColor(color: IssueTypeColor): string {
+  return color.toUpperCase();
+}
+
+export function fromGraphqlColor(color: string | null): string | null {
+  // GraphQL returns uppercase enum values (`PURPLE`); normalise
+  // to the lowercase REST form so callers see a single shape
+  // regardless of which path the data came from.
+  if (color === null) return null;
+  return color.toLowerCase();
+}
+
+// Lookup helper used by org mutations that need the
+// organisation's GraphQL node ID. The shared GraphQL client
+// handles request-level concerns; this just wraps the query in
+// a typed not-found error.
+import type { GraphqlClient } from "../../graphql/client.js";
+
+interface OrgIdResponse {
+  organization: { id: string } | null;
+}
+
+export async function lookupOrgNodeId(
+  graphql: GraphqlClient,
+  org: string,
+  where: string,
+): Promise<string> {
+  const data = await graphql<OrgIdResponse>("org/_org-id", { login: org });
+  if (!data.organization) {
+    throw new Error(
+      `mcp-github: ${where}: organisation '${org}' not found or token lacks read:org access`,
+    );
+  }
+  return data.organization.id;
+}

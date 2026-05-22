@@ -1,0 +1,34 @@
+mutation IssueSetIssueType($input: UpdateIssueIssueTypeInput!) {
+  updateIssueIssueType(input: $input) {
+    issue {
+      number
+      url
+      id
+      title
+      state
+      body
+      labels(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          name
+        }
+      }
+      assignees(first: 100) {
+        pageInfo {
+          hasNextPage
+        }
+        nodes {
+          login
+        }
+      }
+      author {
+        login
+      }
+      createdAt
+      updatedAt
+      closedAt
+    }
+  }
+}

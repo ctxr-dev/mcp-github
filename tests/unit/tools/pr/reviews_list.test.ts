@@ -68,7 +68,7 @@ test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summar
     total: number;
     hasNextPage: boolean;
     endCursor: string | null;
-    reviews: Array<{
+    items: Array<{
       id: string;
       author: string | null;
       state: string;
@@ -81,7 +81,7 @@ test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summar
   assert.equal(out.total, 1);
   assert.equal(out.hasNextPage, false);
   assert.equal(out.endCursor, "abc");
-  assert.deepEqual(out.reviews[0], {
+  assert.deepEqual(out.items[0], {
     id: "PRR_1",
     author: "alice",
     state: "APPROVED",
@@ -175,17 +175,17 @@ test("gh.pr_reviews_list: PENDING review surfaces submitted_at: null + commit_oi
     repo: "owner/repo",
     number: 7,
   })) as {
-    reviews: Array<{
+    items: Array<{
       author: string | null;
       submitted_at: string | null;
       commit_oid: string | null;
       state: string;
     }>;
   };
-  assert.equal(out.reviews[0]?.state, "PENDING");
-  assert.equal(out.reviews[0]?.submitted_at, null);
-  assert.equal(out.reviews[0]?.commit_oid, null);
-  assert.equal(out.reviews[0]?.author, null);
+  assert.equal(out.items[0]?.state, "PENDING");
+  assert.equal(out.items[0]?.submitted_at, null);
+  assert.equal(out.items[0]?.commit_oid, null);
+  assert.equal(out.items[0]?.author, null);
 });
 
 test("gh.pr_reviews_list: repo missing throws repository-shaped error", async () => {

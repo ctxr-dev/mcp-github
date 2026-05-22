@@ -9,9 +9,10 @@
 // + tool registration chain end-to-end without pulling in the
 // unit-test framework.
 //
-// Current surface: 1 auth probe (`gh.test_connection` from MCP-2)
-// + 7 issue tools (MCP-4) + 4 label tools (MCP-7) + 7 PR tools
-// (MCP-5 + MCP-6, the latter adding `gh.pr_request_reviews`).
+// The EXPECTED_TOOLS array below is the authoritative list of
+// the current tool surface; this header used to also carry a
+// human-readable count, but that drifted on every PR. Read the
+// array if you want the current set.
 //
 // Wire format: the MCP SDK's StdioServerTransport uses newline-
 // delimited JSON-RPC (one JSON message per `\n`-terminated line),

@@ -77,9 +77,9 @@ const reviewSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["reviews", "total", "hasNextPage", "endCursor"],
+  required: ["items", "total", "hasNextPage", "endCursor"],
   properties: {
-    reviews: { type: "array", items: reviewSchema },
+    items: { type: "array", items: reviewSchema },
     total: {
       type: "integer",
       minimum: 0,
@@ -121,7 +121,7 @@ interface ReviewSummary {
 }
 
 interface Output {
-  reviews: ReviewSummary[];
+  items: ReviewSummary[];
   total: number;
   hasNextPage: boolean;
   endCursor: string | null;
@@ -148,11 +148,11 @@ export function registerPRReviewsListTool(
       "Paginated list of a PR's reviews — the full history, " +
       "including reviews beyond gh.pr_view's first-100 window. " +
       "Pagination uses `perPage` / `after` on input and " +
-      "`hasNextPage` / `endCursor` at top of output, matching " +
-      "the other list tools. Each entry exposes id, author, " +
-      "state, submitted_at, body (full summary text, not " +
-      "truncated), commit_oid (the SHA the review was submitted " +
-      "against), and url.",
+      "`items` / `total` / `hasNextPage` / `endCursor` at top " +
+      "of output, matching the other list tools. Each entry " +
+      "exposes id, author, state, submitted_at, body (full " +
+      "summary text, not truncated), commit_oid (the SHA the " +
+      "review was submitted against), and url.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -180,7 +180,7 @@ export function registerPRReviewsListTool(
         );
       }
       const out: Output = {
-        reviews: pr.reviews.nodes.map(summariseReview),
+        items: pr.reviews.nodes.map(summariseReview),
         total: pr.reviews.totalCount,
         hasNextPage: pr.reviews.pageInfo.hasNextPage,
         endCursor: pr.reviews.pageInfo.endCursor,

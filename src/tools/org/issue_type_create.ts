@@ -132,13 +132,13 @@ export function registerOrgIssueTypeCreateTool(
       const data = await graphql<CreateResponse>("org/issue_type_create", {
         input,
       });
-      const raw_type = data.createIssueType.issueType;
+      const rawType = data.createIssueType.issueType;
       const out: Output = {
-        node_id: raw_type.id,
-        name: raw_type.name,
-        color: fromGraphqlColor(raw_type.color),
-        description: raw_type.description,
-        is_enabled: raw_type.isEnabled,
+        node_id: rawType.id,
+        name: rawType.name,
+        color: fromGraphqlColor(rawType.color),
+        description: rawType.description,
+        is_enabled: rawType.isEnabled,
       };
       return validate<Output>(
         outputSchema,

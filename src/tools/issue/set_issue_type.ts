@@ -7,9 +7,11 @@
 // after `gh.issue_create` when the optional native Issue Type
 // flow is on.
 //
-// Issue ref accepts the same `(repo, number) | { node_id }` shape
-// as `gh.issue_add_sub_issue` — sourcing the node ID from
-// `gh.issue_create`'s `node_id` output skips one round-trip.
+// Issue ref accepts either a pre-resolved `node_id` (one query —
+// straight to the mutation) or a `(repo, number)` pair (one
+// extra GraphQL lookup to resolve the issue's node ID). Sourcing
+// the node ID directly from `gh.issue_create`'s `node_id` output
+// skips the lookup.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";
@@ -24,8 +26,9 @@ import {
   summariseIssue,
 } from "./_shared.js";
 
-// Same `oneOf` issue-ref shape as add_sub_issue: either a
-// pre-resolved node_id or a (repo, number) pair, never both.
+// Issue-ref schema: either pre-resolved `node_id` or
+// `(repo, number)`, never both. `oneOf` enforces the divide so
+// a mis-shaped input fails fast at the schema boundary.
 const issueRefSchema = {
   type: "object",
   properties: {

@@ -121,12 +121,12 @@ const defaultClock: Clock = () => Date.now();
 let sleeper: Sleeper = defaultSleeper;
 let clock: Clock = defaultClock;
 
-/** @internal — test-only hook; do not import from outside tests/. */
+/** @internal — test-only hook; do not import from outside the tests/ tree. */
 export function _setSleeper(s: Sleeper | null): void {
   sleeper = s ?? defaultSleeper;
 }
 
-/** @internal — test-only hook; do not import from outside tests/. */
+/** @internal — test-only hook; do not import from outside the tests/ tree. */
 export function _setClock(c: Clock | null): void {
   clock = c ?? defaultClock;
 }

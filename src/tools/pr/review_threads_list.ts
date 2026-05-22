@@ -11,8 +11,12 @@
 //
 // Pagination follows the codebase-wide convention from
 // `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
-// `perPage` + `after`, output exposes `hasNextPage` + `endCursor`
-// at the top level (no `pageInfo` wrapper). Pagination is
+// `perPage` + `after`, output exposes `items` and flat
+// `hasNextPage` / `endCursor` at the top level. We also surface
+// `total` (the GraphQL totalCount) like `gh.issue_search` does
+// — useful because the client-side `include_resolved` filter
+// would otherwise hide the unfiltered count, and a long-lived
+// PR can accumulate hundreds of threads. Pagination is
 // caller-driven; large PRs can have hundreds of threads and the
 // methodology often only cares about the first page (the agent
 // fixes the visible set, pushes, and the loop repeats).
@@ -234,11 +238,14 @@ export function registerPRReviewThreadsListTool(
       "thread's GraphQL `id` (suitable for `resolveReviewThread`) " +
       "plus a per-thread preview of comments (path, line, author, " +
       "body, timestamp). Pagination uses `perPage` / `after` on " +
-      "input and `hasNextPage` / `endCursor` at top of output, " +
-      "matching the other list tools. `include_resolved` defaults " +
-      "to false because the methodology's same-turn-resolve rule " +
-      "means the agent usually only cares about open threads — " +
-      "`total` still reflects the GraphQL total (all threads).",
+      "input and the flat `hasNextPage` / `endCursor` shape on " +
+      "output, matching the other list tools; we also surface " +
+      "`total` (the GraphQL totalCount) like `gh.issue_search` " +
+      "does, since the client-side `include_resolved` filter " +
+      "would otherwise hide the unfiltered count. " +
+      "`include_resolved` defaults to false because the " +
+      "methodology's same-turn-resolve rule means the agent " +
+      "usually only cares about open threads.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(

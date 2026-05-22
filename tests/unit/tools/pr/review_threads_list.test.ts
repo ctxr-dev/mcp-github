@@ -60,8 +60,9 @@ function rawThread(overrides: Record<string, unknown> = {}) {
 test("gh.pr_review_threads_list: default include_resolved=false filters resolved out", async () => {
   const { graphql, calls } = stubGraphqlClient({
     "pr/review_threads_list": (vars: Record<string, unknown>) => {
-      // Defaults: first=100, after=null, commentsFirst=10.
-      assert.equal(vars.first, 100);
+      // Defaults: first=30 (matches other list tools),
+      // after=null, commentsFirst=10.
+      assert.equal(vars.first, 30);
       assert.equal(vars.after, null);
       assert.equal(vars.commentsFirst, 10);
       return {
@@ -90,7 +91,7 @@ test("gh.pr_review_threads_list: default include_resolved=false filters resolved
     total: number;
     hasNextPage: boolean;
     endCursor: string | null;
-    threads: Array<{ id: string }>;
+    items: Array<{ id: string }>;
   };
   // total reflects the GraphQL totalCount (3), not the filtered
   // length (2) — caller still sees there's more than the
@@ -98,9 +99,9 @@ test("gh.pr_review_threads_list: default include_resolved=false filters resolved
   assert.equal(out.total, 3);
   assert.equal(out.hasNextPage, false);
   assert.equal(out.endCursor, "Y3Vy");
-  assert.equal(out.threads.length, 2);
+  assert.equal(out.items.length, 2);
   assert.deepEqual(
-    out.threads.map((t) => t.id),
+    out.items.map((t) => t.id),
     ["RT_open_1", "RT_open_2"],
   );
   assert.equal(calls.length, 1);
@@ -129,9 +130,9 @@ test("gh.pr_review_threads_list: include_resolved=true returns every thread", as
     repo: "owner/repo",
     number: 7,
     include_resolved: true,
-  })) as { threads: Array<{ id: string; is_resolved: boolean }> };
+  })) as { items: Array<{ id: string; is_resolved: boolean }> };
   assert.deepEqual(
-    out.threads.map((t) => ({ id: t.id, is_resolved: t.is_resolved })),
+    out.items.map((t) => ({ id: t.id, is_resolved: t.is_resolved })),
     [
       { id: "RT_open", is_resolved: false },
       { id: "RT_resolved", is_resolved: true },
@@ -229,14 +230,14 @@ test("gh.pr_review_threads_list: comments_truncated=true when the per-thread com
     repo: "owner/repo",
     number: 7,
   })) as {
-    threads: Array<{
+    items: Array<{
       comments_truncated: boolean;
       comments_total_count: number;
     }>;
   };
-  assert.equal(out.threads.length, 1);
-  assert.equal(out.threads[0]?.comments_truncated, true);
-  assert.equal(out.threads[0]?.comments_total_count, 25);
+  assert.equal(out.items.length, 1);
+  assert.equal(out.items[0]?.comments_truncated, true);
+  assert.equal(out.items[0]?.comments_total_count, 25);
 });
 
 test("gh.pr_review_threads_list: outdated thread (null line) falls back to originalLine", async () => {
@@ -278,9 +279,9 @@ test("gh.pr_review_threads_list: outdated thread (null line) falls back to origi
   const out = (await reg.entry.handler({
     repo: "owner/repo",
     number: 7,
-  })) as { threads: Array<{ line: number | null; comments: Array<{ line: number | null }> }> };
-  assert.equal(out.threads[0]?.line, 15);
-  assert.equal(out.threads[0]?.comments[0]?.line, 15);
+  })) as { items: Array<{ line: number | null; comments: Array<{ line: number | null }> }> };
+  assert.equal(out.items[0]?.line, 15);
+  assert.equal(out.items[0]?.comments[0]?.line, 15);
 });
 
 test("gh.pr_review_threads_list: repo missing throws repository-shaped error", async () => {

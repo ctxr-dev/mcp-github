@@ -9,6 +9,14 @@
 // + tool registration chain end-to-end without pulling in the
 // unit-test framework.
 //
+<<<<<<< HEAD
+=======
+// The EXPECTED_TOOLS array below is the authoritative list of
+// the current tool surface; this header used to also carry a
+// human-readable count, but that drifted on every PR. Read the
+// array if you want the current set.
+//
+>>>>>>> 564a1df (fix(A2): rename threads → items + drop default perPage to 30 (#28 round-2))
 // Wire format: the MCP SDK's StdioServerTransport uses newline-
 // delimited JSON-RPC (one JSON message per `\n`-terminated line),
 // not LSP-style Content-Length framing. Confirmed in the SDK

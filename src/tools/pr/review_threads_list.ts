@@ -36,7 +36,7 @@ import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import { parseRepoSlug, repoSlugSchema } from "./_shared.js";
 
-const PER_PAGE_DEFAULT = 100;
+const PER_PAGE_DEFAULT = 30;
 const PER_PAGE_MAX = 100;
 const COMMENTS_PER_THREAD_DEFAULT = 10;
 const COMMENTS_PER_THREAD_MAX = 50;
@@ -132,9 +132,9 @@ const threadSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["threads", "total", "hasNextPage", "endCursor"],
+  required: ["items", "total", "hasNextPage", "endCursor"],
   properties: {
-    threads: { type: "array", items: threadSchema },
+    items: { type: "array", items: threadSchema },
     total: {
       type: "integer",
       minimum: 0,
@@ -216,7 +216,7 @@ interface ThreadSummary {
 }
 
 interface Output {
-  threads: ThreadSummary[];
+  items: ThreadSummary[];
   total: number;
   hasNextPage: boolean;
   endCursor: string | null;
@@ -274,9 +274,8 @@ export function registerPRReviewThreadsListTool(
       const filtered = includeResolved
         ? pr.reviewThreads.nodes
         : pr.reviewThreads.nodes.filter((n) => !n.isResolved);
-      const threads: ThreadSummary[] = filtered.map(summariseThread);
       const out: Output = {
-        threads,
+        items: filtered.map(summariseThread),
         total: pr.reviewThreads.totalCount,
         hasNextPage: pr.reviewThreads.pageInfo.hasNextPage,
         endCursor: pr.reviewThreads.pageInfo.endCursor,

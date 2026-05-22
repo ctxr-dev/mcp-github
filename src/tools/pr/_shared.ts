@@ -87,6 +87,11 @@ export async function lookupRepoNodeId(
 export interface ReviewSummary {
   author: string | null;
   state: "PENDING" | "COMMENTED" | "APPROVED" | "CHANGES_REQUESTED" | "DISMISSED";
+  // `submitted_at` is null for PENDING reviews (the user has
+  // started a review but not yet hit "Submit"). Every other
+  // state implies a submission, but GitHub still types the
+  // field as nullable so we mirror that.
+  submitted_at: string | null;
 }
 
 export interface StatusCheck {
@@ -108,6 +113,19 @@ export interface PRSummary {
   merged: boolean;
   merged_at: string | null;
   merge_commit_sha: string | null;
+  // GitHub's computed aggregate of `reviews[]`:
+  //   - "APPROVED": every required reviewer's latest non-DISMISSED
+  //     review is APPROVED.
+  //   - "CHANGES_REQUESTED": at least one such review is
+  //     CHANGES_REQUESTED.
+  //   - "REVIEW_REQUIRED": branch protection requires a review and
+  //     the PR doesn't yet satisfy it.
+  //   - null: the PR's base doesn't require code review at all
+  //     (no branch protection rule, or the rule is off for this
+  //     repo).
+  // The methodology consumes this directly; do NOT recompute on
+  // the agent side from `reviews[]`.
+  review_decision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
   labels: string[];
   assignees: string[];
   author: string | null;
@@ -122,13 +140,14 @@ export interface PRSummary {
 
 export const reviewSummarySchema = {
   type: "object",
-  required: ["author", "state"],
+  required: ["author", "state", "submitted_at"],
   properties: {
     author: { type: ["string", "null"] },
     state: {
       type: "string",
       enum: ["PENDING", "COMMENTED", "APPROVED", "CHANGES_REQUESTED", "DISMISSED"],
     },
+    submitted_at: { type: ["string", "null"] },
   },
   additionalProperties: false,
 } as const;
@@ -162,6 +181,7 @@ export const prSummarySchema = {
     "merged",
     "merged_at",
     "merge_commit_sha",
+    "review_decision",
     "labels",
     "assignees",
     "author",
@@ -187,6 +207,10 @@ export const prSummarySchema = {
     merged: { type: "boolean" },
     merged_at: { type: ["string", "null"] },
     merge_commit_sha: { type: ["string", "null"] },
+    review_decision: {
+      type: ["string", "null"],
+      enum: ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED", null],
+    },
     labels: { type: "array", items: { type: "string" } },
     assignees: { type: "array", items: { type: "string" } },
     author: { type: ["string", "null"] },
@@ -228,6 +252,7 @@ export interface RawPR {
   merged: boolean;
   mergedAt: string | null;
   mergeCommit: { oid: string } | null;
+  reviewDecision: "APPROVED" | "CHANGES_REQUESTED" | "REVIEW_REQUIRED" | null;
   labels: PaginatedNodes<{ name: string }>;
   assignees: PaginatedNodes<{ login: string }>;
   author: { login: string } | null;
@@ -237,6 +262,7 @@ export interface RawPR {
   reviews: PaginatedNodes<{
     state: ReviewSummary["state"];
     author: { login: string } | null;
+    submittedAt: string | null;
   }>;
   reviewThreads: PaginatedNodes<{
     comments: { totalCount: number };
@@ -285,6 +311,7 @@ export function summarisePR(
   const reviews: ReviewSummary[] = raw.reviews.nodes.map((r) => ({
     author: r.author?.login ?? null,
     state: r.state,
+    submitted_at: r.submittedAt,
   }));
   const reviewCommentsCount = raw.reviewThreads.nodes.reduce(
     (sum, t) => sum + t.comments.totalCount,
@@ -308,6 +335,7 @@ export function summarisePR(
     merged: raw.merged,
     merged_at: raw.mergedAt,
     merge_commit_sha: raw.mergeCommit?.oid ?? null,
+    review_decision: raw.reviewDecision,
     labels: raw.labels.nodes.map((n) => n.name),
     assignees: raw.assignees.nodes.map((n) => n.login),
     author: raw.author?.login ?? null,

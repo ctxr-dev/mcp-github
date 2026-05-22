@@ -36,14 +36,20 @@ test("gh.pr_view: maps a full GraphQL response onto the canonical PRSummary", as
     number: number;
     base: string;
     head: string;
+    review_decision: string | null;
     review_comments_count: number;
     status_checks_state: string | null;
     status_checks: Array<{ context: string; state: string }>;
-    reviews: Array<{ author: string | null; state: string }>;
+    reviews: Array<{
+      author: string | null;
+      state: string;
+      submitted_at: string | null;
+    }>;
   };
   assert.equal(out.number, 7);
   assert.equal(out.base, "main");
   assert.equal(out.head, "feat/x");
+  assert.equal(out.review_decision, "APPROVED");
   // 3 + 0 = 3 review-comments across two threads.
   assert.equal(out.review_comments_count, 3);
   assert.equal(out.status_checks_state, "SUCCESS");
@@ -51,7 +57,13 @@ test("gh.pr_view: maps a full GraphQL response onto the canonical PRSummary", as
     out.status_checks.map((c) => c.context),
     ["ci/build", "ci/legacy"],
   );
-  assert.deepEqual(out.reviews, [{ author: "carol", state: "APPROVED" }]);
+  assert.deepEqual(out.reviews, [
+    {
+      author: "carol",
+      state: "APPROVED",
+      submitted_at: "2026-04-02T01:00:00Z",
+    },
+  ]);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0]?.vars, {
     owner: "owner",
@@ -132,6 +144,67 @@ test("gh.pr_view: maps CheckRun + StatusContext onto the unified status_checks s
     { context: "ci/lint", state: "FAILURE" },
     { context: "ci/test", state: "PENDING" },
   ]);
+});
+
+test("gh.pr_view: review_decision: null passes through (no branch-protection review requirement)", async () => {
+  // A PR against a base with no branch-protection rule returns
+  // reviewDecision: null. Methodology must NOT mistake null for
+  // "REVIEW_REQUIRED" — the absence of a requirement is not the
+  // same as a pending one.
+  const customPR = { ...sampleRawPR, reviewDecision: null };
+  const { graphql } = stubGraphqlClient({
+    "pr/view": { repository: { pullRequest: customPR } },
+  });
+  const reg = captureRegistration();
+  registerPRViewTool(reg.register, graphql);
+  const out = (await reg.entry.handler({ repo: "owner/repo", number: 7 })) as {
+    review_decision: string | null;
+  };
+  assert.equal(out.review_decision, null);
+});
+
+test("gh.pr_view: each review_decision enum value passes through unchanged", async () => {
+  for (const decision of ["APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED"] as const) {
+    const customPR = { ...sampleRawPR, reviewDecision: decision };
+    const { graphql } = stubGraphqlClient({
+      "pr/view": { repository: { pullRequest: customPR } },
+    });
+    const reg = captureRegistration();
+    registerPRViewTool(reg.register, graphql);
+    const out = (await reg.entry.handler({ repo: "owner/repo", number: 7 })) as {
+      review_decision: string | null;
+    };
+    assert.equal(out.review_decision, decision);
+  }
+});
+
+test("gh.pr_view: PENDING review with null submittedAt passes through as null", async () => {
+  // A reviewer who started but didn't submit a review surfaces
+  // as { state: "PENDING", submitted_at: null }. The methodology's
+  // "fresh review on new HEAD" check skips PENDING reviews.
+  const customPR = {
+    ...sampleRawPR,
+    reviews: {
+      pageInfo: { hasNextPage: false },
+      nodes: [
+        {
+          state: "PENDING" as const,
+          author: { login: "draft-reviewer" },
+          submittedAt: null,
+        },
+      ],
+    },
+  };
+  const { graphql } = stubGraphqlClient({
+    "pr/view": { repository: { pullRequest: customPR } },
+  });
+  const reg = captureRegistration();
+  registerPRViewTool(reg.register, graphql);
+  const out = (await reg.entry.handler({ repo: "owner/repo", number: 7 })) as {
+    reviews: Array<{ submitted_at: string | null; state: string }>;
+  };
+  assert.equal(out.reviews[0]?.state, "PENDING");
+  assert.equal(out.reviews[0]?.submitted_at, null);
 });
 
 test("gh.pr_view: status_checks_state is null when there's no rollup", async () => {

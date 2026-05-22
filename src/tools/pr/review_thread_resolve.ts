@@ -2,13 +2,14 @@
 //
 // `gh.pr_review_thread_resolve` — marks a PR review thread as
 // resolved via GraphQL's `resolveReviewThread` mutation. One
-// thread per call by design: the methodology memory rule
-// `feedback_avoid_chained_gh_calls.md` says never chain these
-// mutations in a single shell because a single bad ID silently
-// kills the rest of the chain. Callers that need to resolve
-// many threads loop client-side over their source of review-
-// thread node IDs (e.g. the companion list tool, or a hand-rolled
-// `reviewThreads(...)` GraphQL query).
+// thread per call by design: chaining multiple resolves in a
+// single shell-out (`gh api graphql ... && gh api graphql ...`)
+// fails opaquely when any one ID is invalid — the second
+// mutation never runs and the failure point is hard to spot
+// in the chained output. Callers that need to resolve many
+// threads loop client-side over their source of review-thread
+// node IDs (any GraphQL query that selects `reviewThreads(...)`
+// on a PR).
 //
 // The mutation returns the thread's post-mutation state
 // (`isResolved`) so the caller can confirm the resolve actually
@@ -30,9 +31,9 @@ const inputSchema = {
       minLength: 1,
       description:
         "PullRequestReviewThread node ID. Source it from any " +
-        "GraphQL query that selects `reviewThreads(...)` on a " +
-        "PR (the companion list tool's `threads[].id` field is " +
-        "the canonical source when both tools are installed).",
+        "GraphQL query that selects `reviewThreads(...) { nodes " +
+        "{ id } }` on a PullRequest. The id looks like " +
+        "`PRRT_kw...`.",
     },
   },
   additionalProperties: false,

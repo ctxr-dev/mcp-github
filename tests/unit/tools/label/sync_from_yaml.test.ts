@@ -337,28 +337,91 @@ test("gh.label_sync_from_yaml: throws on YAML that's not an array or labels obje
   );
 });
 
-test("gh.label_sync_from_yaml: throws on truncated label list (>100 labels)", async () => {
-  // Mirrors the issue domain's truncation contract: v0.1 caps at
-  // 100 labels because pagination would add complexity
-  // disproportionate to the rare case.
+test("gh.label_sync_from_yaml: paginates across multiple label pages (A11)", async () => {
+  // Repo has 3 labels split across two pages of 2 + 1. The
+  // installer should follow `endCursor` to the second page and
+  // see the full set; YAML wants only "bug" which is already on
+  // the repo, so report should be all-unchanged with no
+  // mutations.
+  const pages = [
+    {
+      pageInfo: { hasNextPage: true, endCursor: "C1" },
+      nodes: [
+        rawLabel({ id: "LA_a", name: "alpha", color: "111111" }),
+        rawLabel({
+          id: "LA_bug",
+          name: "bug",
+          color: "d73a4a",
+          description: "Something is broken",
+        }),
+      ],
+    },
+    {
+      pageInfo: { hasNextPage: false, endCursor: null },
+      nodes: [rawLabel({ id: "LA_z", name: "zeta", color: "222222" })],
+    },
+  ];
+  let call = 0;
+  const { graphql, calls } = stubGraphqlClient({
+    "label/list": (vars: Record<string, unknown>) => {
+      // First call has after: null; second call uses the prior
+      // endCursor.
+      if (call === 0) assert.equal(vars.after, null);
+      if (call === 1) assert.equal(vars.after, "C1");
+      const page = pages[call];
+      call += 1;
+      return { repository: { labels: page } };
+    },
+    "label/_repo-id": { repository: { id: "R_repo" } },
+  });
+  const reg = captureRegistration();
+  registerLabelSyncFromYamlTool(reg.register, graphql);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    yaml_text: `- name: bug
+  color: d73a4a
+  description: Something is broken
+`,
+    mode: "install",
+  })) as { unchanged: Array<{ name: string }>; created: unknown[] };
+  // Two list pages walked.
+  assert.equal(
+    calls.filter((c) => c.queryName === "label/list").length,
+    2,
+  );
+  // Bug exists on page 1 — no create needed.
+  assert.deepEqual(out.created, []);
+  assert.deepEqual(
+    out.unchanged.map((u) => u.name),
+    ["bug"],
+  );
+});
+
+test("gh.label_sync_from_yaml: throws on a stalled cursor (hasNextPage true but endCursor doesn't advance)", async () => {
+  // Defensive guard against an API quirk: hasNextPage stays true
+  // but endCursor returns the same value, which would otherwise
+  // loop until the safety ceiling.
   const { graphql } = stubGraphqlClient({
     "label/list": {
       repository: {
         labels: {
-          pageInfo: { hasNextPage: true, endCursor: "C" },
-          nodes: [],
+          pageInfo: { hasNextPage: true, endCursor: "STUCK" },
+          nodes: [rawLabel({ id: "LA_a", name: "alpha" })],
         },
       },
     },
   });
   const reg = captureRegistration();
   registerLabelSyncFromYamlTool(reg.register, graphql);
+  // The same fixture echoes "STUCK" on every page; the first call
+  // sets cursor = STUCK, the second call returns endCursor = STUCK
+  // again → stall detected, throw.
   await assert.rejects(
     reg.entry.handler({
       repo: "owner/repo",
       yaml_text: TAXONOMY_YAML,
       mode: "install",
     }),
-    /more than 100 labels/,
+    /pagination stalled/,
   );
 });

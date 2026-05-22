@@ -1,0 +1,12 @@
+mutation IssueAddSubIssue($input: AddSubIssueInput!) {
+  addSubIssue(input: $input) {
+    issue {
+      id
+      number
+    }
+    subIssue {
+      id
+      number
+    }
+  }
+}

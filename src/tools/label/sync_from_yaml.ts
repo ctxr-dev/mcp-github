@@ -34,6 +34,12 @@ import {
 } from "./_shared.js";
 
 const LABELS_PAGE_SIZE = 100;
+// Hard ceiling on the total label set to detect runaway queries
+// (e.g. a misconfigured cursor that fails to advance) without
+// exhausting GitHub's rate-limit budget. Real repos top out
+// well under this; if you hit it, something is wrong upstream
+// rather than a legitimately enormous taxonomy.
+const LABELS_TOTAL_CEILING = 5000;
 
 const inputSchema = {
   type: "object",
@@ -282,34 +288,59 @@ function parseTaxonomy(yamlText: string): TaxonomyEntry[] {
   );
 }
 
-// Walk the repo's full label list. v0.1 caps at 100 labels for
-// the same reason the issue-domain repo-context tool does:
-// pagination would add complexity disproportionate to the
-// vanishingly rare case of a repo with > 100 labels. A truncated
-// fetch surfaces as an actionable error pointing the operator
-// at the v0.1 ceiling.
+// Walk the repo's full label list across every page. Drives a
+// `pageInfo.hasNextPage` loop with `after: endCursor` until the
+// API reports no more results, or until the accumulated set
+// exceeds `LABELS_TOTAL_CEILING` (safety guard for a runaway
+// cursor — a real taxonomy never approaches that count).
 async function loadAllLabels(
   graphql: GraphqlClient,
   coords: { owner: string; name: string },
 ): Promise<RawLabel[]> {
-  const data = await graphql<ListResponse>("label/list", {
-    owner: coords.owner,
-    name: coords.name,
-    first: LABELS_PAGE_SIZE,
-    after: null,
-  });
-  if (!data.repository) {
-    throw new Error(
-      `mcp-github: gh.label_sync_from_yaml: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
-    );
+  const all: RawLabel[] = [];
+  let cursor: string | null = null;
+  // Safety bound: even at LABELS_PAGE_SIZE per call, this is far
+  // more iterations than any realistic taxonomy needs. The
+  // ceiling-check inside the loop is the primary guard; this
+  // for-loop bound is the secondary backstop in case the API
+  // reports hasNextPage forever with no advancing cursor.
+  const MAX_PAGES = Math.ceil(LABELS_TOTAL_CEILING / LABELS_PAGE_SIZE) + 1;
+  for (let page = 0; page < MAX_PAGES; page += 1) {
+    const data: ListResponse = await graphql<ListResponse>("label/list", {
+      owner: coords.owner,
+      name: coords.name,
+      first: LABELS_PAGE_SIZE,
+      after: cursor,
+    });
+    if (!data.repository) {
+      throw new Error(
+        `mcp-github: gh.label_sync_from_yaml: repository '${coords.owner}/${coords.name}' not found or token lacks read access`,
+      );
+    }
+    all.push(...data.repository.labels.nodes);
+    if (all.length > LABELS_TOTAL_CEILING) {
+      throw new Error(
+        `mcp-github: gh.label_sync_from_yaml: repository '${coords.owner}/${coords.name}' exceeded the ${LABELS_TOTAL_CEILING}-label safety ceiling; ` +
+          `aborting to avoid a runaway pagination loop. Investigate upstream before retrying.`,
+      );
+    }
+    if (!data.repository.labels.pageInfo.hasNextPage) {
+      return all;
+    }
+    const next: string | null = data.repository.labels.pageInfo.endCursor;
+    if (typeof next !== "string" || next === cursor) {
+      // Defensive: an API quirk where hasNextPage is true but
+      // endCursor doesn't advance would otherwise loop until the
+      // backstop. Throw early with a clear signal instead.
+      throw new Error(
+        `mcp-github: gh.label_sync_from_yaml: pagination stalled (hasNextPage: true but endCursor did not advance) on '${coords.owner}/${coords.name}'`,
+      );
+    }
+    cursor = next;
   }
-  if (data.repository.labels.pageInfo.hasNextPage) {
-    throw new Error(
-      `mcp-github: gh.label_sync_from_yaml: repository '${coords.owner}/${coords.name}' has more than ${LABELS_PAGE_SIZE} labels; ` +
-        `sync is not supported on repos that large at v0.1.`,
-    );
-  }
-  return data.repository.labels.nodes;
+  throw new Error(
+    `mcp-github: gh.label_sync_from_yaml: pagination did not terminate within ${MAX_PAGES} pages on '${coords.owner}/${coords.name}'`,
+  );
 }
 
 function diffLabel(

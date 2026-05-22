@@ -9,10 +9,6 @@
 // + tool registration chain end-to-end without pulling in the
 // unit-test framework.
 //
-// Current surface: 1 auth probe (`gh.test_connection` from MCP-2)
-// + 7 issue tools (MCP-4) + 4 label tools (MCP-7) + 7 PR tools
-// (MCP-5 + MCP-6, the latter adding `gh.pr_request_reviews`).
-//
 // Wire format: the MCP SDK's StdioServerTransport uses newline-
 // delimited JSON-RPC (one JSON message per `\n`-terminated line),
 // not LSP-style Content-Length framing. Confirmed in the SDK
@@ -39,6 +35,7 @@ const EXPECTED_TOOLS = [
   "gh.issue_close",
   "gh.issue_comment",
   "gh.issue_search",
+  "gh.issue_add_sub_issue",
   "gh.label_create",
   "gh.label_list",
   "gh.label_edit",

@@ -8,8 +8,11 @@
 //
 // Pagination follows the codebase-wide convention from
 // `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
-// `perPage` + `after`, output exposes `hasNextPage` + `endCursor`
-// at the top level (no `pageInfo` wrapper).
+// `perPage` + `after`, output exposes `items` and flat
+// `hasNextPage` / `endCursor` at the top level. We also surface
+// `total` (the GraphQL totalCount) like `gh.issue_search` does
+// — useful because reviews on long-lived PRs can run into the
+// hundreds and the caller wants to know the absolute count.
 //
 // Per-review fields: id, author, state, submitted_at, body (the
 // full review-summary text, not truncated), commit_sha (the SHA
@@ -147,9 +150,12 @@ export function registerPRReviewsListTool(
     description:
       "Paginated list of a PR's reviews — the full history, " +
       "including reviews beyond gh.pr_view's first-100 window. " +
-      "Pagination uses `perPage` / `after` on input and " +
-      "`items` / `total` / `hasNextPage` / `endCursor` at top " +
-      "of output, matching the other list tools. Each entry " +
+      "Pagination uses `perPage` / `after` on input and the flat " +
+      "`hasNextPage` / `endCursor` shape on output, matching the " +
+      "other list tools; we also surface `total` (the GraphQL " +
+      "totalCount) like `gh.issue_search` does, since long-lived " +
+      "PRs can accumulate hundreds of reviews and the absolute " +
+      "count is the useful signal for the agent. Each entry " +
       "exposes id, author, state, submitted_at, body (full " +
       "summary text, not truncated), commit_sha (the SHA the " +
       "review was submitted against), and url.",

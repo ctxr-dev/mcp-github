@@ -6,8 +6,9 @@
 // `feedback_avoid_chained_gh_calls.md` says never chain these
 // mutations in a single shell because a single bad ID silently
 // kills the rest of the chain. Callers that need to resolve
-// many threads loop client-side over `gh.pr_review_threads_list`
-// output.
+// many threads loop client-side over their source of review-
+// thread node IDs (e.g. the companion list tool, or a hand-rolled
+// `reviewThreads(...)` GraphQL query).
 //
 // The mutation returns the thread's post-mutation state
 // (`isResolved`) so the caller can confirm the resolve actually
@@ -28,8 +29,10 @@ const inputSchema = {
       type: "string",
       minLength: 1,
       description:
-        "Review thread node ID, as returned by " +
-        "`gh.pr_review_threads_list` in each thread's `id` field.",
+        "PullRequestReviewThread node ID. Source it from any " +
+        "GraphQL query that selects `reviewThreads(...)` on a " +
+        "PR (the companion list tool's `threads[].id` field is " +
+        "the canonical source when both tools are installed).",
     },
   },
   additionalProperties: false,
@@ -71,10 +74,10 @@ export function registerPRReviewThreadResolveTool(
       "Mark ONE PR review thread as resolved via GraphQL's " +
       "`resolveReviewThread` mutation. Idempotent: re-running on " +
       "an already-resolved thread returns `is_resolved: true` " +
-      "without error. ONE thread per call by design — callers loop " +
-      "client-side over `gh.pr_review_threads_list` output rather " +
-      "than chaining IDs, because a single bad ID in a chain " +
-      "silently kills the rest.",
+      "without error. ONE thread per call by design — callers " +
+      "loop client-side over their thread-ID source rather than " +
+      "chaining IDs, because a single bad ID in a chain silently " +
+      "kills the rest.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(

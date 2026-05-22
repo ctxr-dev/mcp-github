@@ -50,6 +50,7 @@ const EXPECTED_TOOLS = [
   "gh.pr_comment",
   "gh.pr_merge",
   "gh.pr_request_reviews",
+  "gh.pr_review_thread_resolve",
   "gh.project_item_add",
   "gh.project_item_update_field",
   "gh.project_field_list",

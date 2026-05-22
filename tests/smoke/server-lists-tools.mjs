@@ -55,6 +55,7 @@ const EXPECTED_TOOLS = [
   "gh.workflow_run_view",
   "gh.workflow_run_cancel",
   "gh.workflow_run_jobs",
+  "gh.pr_review_threads_list",
 ];
 
 function frame(payload) {

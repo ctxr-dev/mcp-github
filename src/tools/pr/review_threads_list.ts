@@ -2,30 +2,42 @@
 //
 // `gh.pr_review_threads_list` — paginated list of a PR's review
 // threads (the conversation containers around inline review
-// comments). Each thread carries the `id` that
-// `gh.pr_review_thread_resolve` needs and a small per-thread
-// preview of the latest comments (file path, line, body, author,
-// timestamp). The methodology's pr-loop flow drives this in a
-// loop: read unresolved threads → address each → call
-// `pr_review_thread_resolve` per thread.
+// comments). Each thread carries the `id` that the resolver tool
+// consumes and a per-thread preview of comments (file path,
+// line, body, author, timestamp). The methodology's pr-loop
+// flow drives this in a loop: read unresolved threads → address
+// each → call the resolver per thread.
 //
-// Pagination is caller-driven (`cursor: endCursor`). We do NOT
-// auto-paginate inside the tool: large PRs can have hundreds of
-// threads and the methodology often only cares about the first
-// page (the agent fixes the visible set, pushes, and the loop
-// repeats). `include_resolved` defaults to false because the
-// "resolve same turn" rule (`feedback_pr_thread_resolve_same_turn.md`)
+// Pagination follows the codebase-wide convention from
+// `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
+// `perPage` + `after`, output exposes `hasNextPage` + `endCursor`
+// at the top level (no `pageInfo` wrapper). Pagination is
+// caller-driven; large PRs can have hundreds of threads and the
+// methodology often only cares about the first page (the agent
+// fixes the visible set, pushes, and the loop repeats).
+//
+// `include_resolved` defaults to false because the "resolve
+// same turn" rule (memory `feedback_pr_thread_resolve_same_turn`)
 // means the orchestrator usually wants only the unresolved set.
 // Filtering is client-side; `totalCount` reflects the GraphQL
 // totalCount (all threads), not the filtered length, so the
-// caller has an honest signal even when a page has no unresolved
-// threads.
+// caller has an honest signal even when a page has no
+// unresolved threads after filtering.
+//
+// Comments per thread default to the first 10 (the conversation
+// is naturally ordered chronologically; the methodology reads
+// the opening comment to decide what to fix, plus a few follow-
+// ups for context). Threads with more comments than the cap set
+// `comments_truncated: true`; consumers who need the tail can
+// query GraphQL directly.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import { parseRepoSlug, repoSlugSchema } from "./_shared.js";
 
+const PER_PAGE_DEFAULT = 100;
+const PER_PAGE_MAX = 100;
 const COMMENTS_PER_THREAD_DEFAULT = 10;
 const COMMENTS_PER_THREAD_MAX = 50;
 
@@ -35,29 +47,32 @@ const inputSchema = {
   properties: {
     repo: repoSlugSchema,
     number: { type: "integer", minimum: 1 },
-    cursor: {
+    after: {
       type: "string",
       minLength: 1,
       description:
-        "Opaque pagination cursor from a previous call's " +
-        "`pageInfo.endCursor`. Omit on the first call.",
+        "Opaque cursor from a previous call's `endCursor`. Omit " +
+        "on the first call. Naming matches `gh.pr_list` / " +
+        "`gh.issue_list` / `gh.label_list`.",
     },
-    page_size: {
+    perPage: {
       type: "integer",
       minimum: 1,
-      maximum: 100,
+      maximum: PER_PAGE_MAX,
       description:
-        "Threads per page. GitHub caps at 100; we mirror that.",
+        `Threads per page (default ${PER_PAGE_DEFAULT}, max ${PER_PAGE_MAX}). ` +
+        "Naming matches the other paginated list tools.",
     },
     comments_per_thread: {
       type: "integer",
       minimum: 1,
       maximum: COMMENTS_PER_THREAD_MAX,
       description:
-        "How many comments to surface per thread (default 10, " +
-        "max 50). Threads with more than this set " +
-        "`comments_truncated: true`; fetch the full set via the " +
-        "GitHub API directly if needed.",
+        `How many comments to surface per thread (default ${COMMENTS_PER_THREAD_DEFAULT}, ` +
+        `max ${COMMENTS_PER_THREAD_MAX}). Comments are returned in chronological order ` +
+        "(GraphQL `comments(first:N)`) so the thread's opening message " +
+        "is included even when the conversation is long. Threads with " +
+        "more comments than the cap set `comments_truncated: true`.",
     },
     include_resolved: {
       type: "boolean",
@@ -117,19 +132,18 @@ const threadSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["totalCount", "pageInfo", "threads"],
+  required: ["threads", "total", "hasNextPage", "endCursor"],
   properties: {
-    totalCount: { type: "integer", minimum: 0 },
-    pageInfo: {
-      type: "object",
-      required: ["hasNextPage", "endCursor"],
-      properties: {
-        hasNextPage: { type: "boolean" },
-        endCursor: { type: ["string", "null"] },
-      },
-      additionalProperties: false,
-    },
     threads: { type: "array", items: threadSchema },
+    total: {
+      type: "integer",
+      minimum: 0,
+      description:
+        "GraphQL totalCount across resolved + unresolved threads — " +
+        "unaffected by client-side `include_resolved` filtering.",
+    },
+    hasNextPage: { type: "boolean" },
+    endCursor: { type: ["string", "null"] },
   },
   additionalProperties: false,
 } as const;
@@ -139,8 +153,8 @@ type RegisterToolFn = (name: string, entry: ToolEntry) => void;
 interface Input {
   repo: string;
   number: number;
-  cursor?: string;
-  page_size?: number;
+  after?: string;
+  perPage?: number;
   comments_per_thread?: number;
   include_resolved?: boolean;
 }
@@ -161,8 +175,6 @@ interface RawThread {
   path: string | null;
   line: number | null;
   originalLine: number | null;
-  startLine: number | null;
-  originalStartLine: number | null;
   diffSide: "LEFT" | "RIGHT" | null;
   comments: {
     totalCount: number;
@@ -204,9 +216,10 @@ interface ThreadSummary {
 }
 
 interface Output {
-  totalCount: number;
-  pageInfo: { hasNextPage: boolean; endCursor: string | null };
   threads: ThreadSummary[];
+  total: number;
+  hasNextPage: boolean;
+  endCursor: string | null;
 }
 
 export function registerPRReviewThreadsListTool(
@@ -216,13 +229,14 @@ export function registerPRReviewThreadsListTool(
   register("gh.pr_review_threads_list", {
     description:
       "Paginated list of a PR's review threads (the conversation " +
-      "containers around inline review comments). Returns the " +
-      "thread `id` that `gh.pr_review_thread_resolve` consumes, " +
-      "plus a per-thread preview of comments (path, line, author, " +
-      "body, timestamp). Caller drives pagination via " +
-      "`cursor: endCursor`. `include_resolved` defaults to false " +
+      "containers around inline review comments). Returns each " +
+      "thread's `id` (consumed by the resolver tool) plus a " +
+      "per-thread preview of comments (path, line, author, body, " +
+      "timestamp). Pagination uses `perPage` / `after` on input " +
+      "and `hasNextPage` / `endCursor` at top of output, matching " +
+      "the other list tools. `include_resolved` defaults to false " +
       "because the methodology's same-turn-resolve rule means the " +
-      "agent usually only cares about open threads — `totalCount` " +
+      "agent usually only cares about open threads — `total` " +
       "still reflects the GraphQL total (all threads).",
     inputSchema,
     handler: async (raw) => {
@@ -239,8 +253,8 @@ export function registerPRReviewThreadsListTool(
         owner: coords.owner,
         name: coords.name,
         number: args.number,
-        first: args.page_size ?? 100,
-        after: args.cursor ?? null,
+        first: args.perPage ?? PER_PAGE_DEFAULT,
+        after: args.after ?? null,
         commentsFirst:
           args.comments_per_thread ?? COMMENTS_PER_THREAD_DEFAULT,
       });
@@ -262,9 +276,10 @@ export function registerPRReviewThreadsListTool(
         : pr.reviewThreads.nodes.filter((n) => !n.isResolved);
       const threads: ThreadSummary[] = filtered.map(summariseThread);
       const out: Output = {
-        totalCount: pr.reviewThreads.totalCount,
-        pageInfo: pr.reviewThreads.pageInfo,
         threads,
+        total: pr.reviewThreads.totalCount,
+        hasNextPage: pr.reviewThreads.pageInfo.hasNextPage,
+        endCursor: pr.reviewThreads.pageInfo.endCursor,
       };
       return validate<Output>(
         outputSchema,

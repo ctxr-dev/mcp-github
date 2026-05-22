@@ -20,8 +20,6 @@ query PRReviewThreadsList(
           path
           line
           originalLine
-          startLine
-          originalStartLine
           diffSide
           comments(first: $commentsFirst) {
             totalCount

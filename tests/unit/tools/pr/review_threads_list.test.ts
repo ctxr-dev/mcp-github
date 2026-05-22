@@ -1,8 +1,10 @@
 // tests/unit/tools/pr/review_threads_list.test.ts
 //
 // gh.pr_review_threads_list: pin the default-unresolved filter,
-// the cursor / page_size pass-through, the comments_per_thread
-// behaviour incl. truncation, and the not-found error shapes.
+// the after/perPage pass-through, the comments_per_thread
+// behaviour incl. truncation, the top-level pagination output
+// shape (hasNextPage/endCursor at the root, matching the other
+// list tools), and the not-found error shapes.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -35,8 +37,6 @@ function rawThread(overrides: Record<string, unknown> = {}) {
     path: "src/foo.ts",
     line: 42,
     originalLine: 42,
-    startLine: null,
-    originalStartLine: null,
     diffSide: "RIGHT" as const,
     comments: {
       totalCount: 1,
@@ -86,11 +86,18 @@ test("gh.pr_review_threads_list: default include_resolved=false filters resolved
   const out = (await reg.entry.handler({
     repo: "owner/repo",
     number: 7,
-  })) as { totalCount: number; threads: Array<{ id: string }> };
-  // totalCount reflects the GraphQL total (3), not the filtered
+  })) as {
+    total: number;
+    hasNextPage: boolean;
+    endCursor: string | null;
+    threads: Array<{ id: string }>;
+  };
+  // total reflects the GraphQL totalCount (3), not the filtered
   // length (2) — caller still sees there's more than the
   // filter pass-through.
-  assert.equal(out.totalCount, 3);
+  assert.equal(out.total, 3);
+  assert.equal(out.hasNextPage, false);
+  assert.equal(out.endCursor, "Y3Vy");
   assert.equal(out.threads.length, 2);
   assert.deepEqual(
     out.threads.map((t) => t.id),
@@ -132,7 +139,7 @@ test("gh.pr_review_threads_list: include_resolved=true returns every thread", as
   );
 });
 
-test("gh.pr_review_threads_list: cursor + page_size + comments_per_thread pass through to GraphQL vars", async () => {
+test("gh.pr_review_threads_list: after + perPage + comments_per_thread pass through to GraphQL vars", async () => {
   const { graphql } = stubGraphqlClient({
     "pr/review_threads_list": (vars: Record<string, unknown>) => {
       assert.equal(vars.first, 25);
@@ -156,10 +163,41 @@ test("gh.pr_review_threads_list: cursor + page_size + comments_per_thread pass t
   await reg.entry.handler({
     repo: "owner/repo",
     number: 7,
-    page_size: 25,
-    cursor: "PAGE2_CURSOR",
+    perPage: 25,
+    after: "PAGE2_CURSOR",
     comments_per_thread: 3,
   });
+});
+
+test("gh.pr_review_threads_list: hasNextPage + endCursor surface at the top of the output", async () => {
+  // Pin the pagination output contract that other list tools also
+  // follow (flat hasNextPage/endCursor, not nested under pageInfo).
+  const { graphql } = stubGraphqlClient({
+    "pr/review_threads_list": () => ({
+      repository: {
+        pullRequest: {
+          reviewThreads: {
+            totalCount: 250,
+            pageInfo: { hasNextPage: true, endCursor: "NEXT_CURSOR" },
+            nodes: [],
+          },
+        },
+      },
+    }),
+  });
+  const reg = captureRegistration();
+  registerPRReviewThreadsListTool(reg.register, graphql);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    number: 7,
+  })) as {
+    total: number;
+    hasNextPage: boolean;
+    endCursor: string | null;
+  };
+  assert.equal(out.total, 250);
+  assert.equal(out.hasNextPage, true);
+  assert.equal(out.endCursor, "NEXT_CURSOR");
 });
 
 test("gh.pr_review_threads_list: comments_truncated=true when the per-thread comment page has more results", async () => {
@@ -271,12 +309,12 @@ test("gh.pr_review_threads_list: PR missing throws PR-shaped error", async () =>
   );
 });
 
-test("gh.pr_review_threads_list: rejects page_size > 100 at the input boundary", async () => {
+test("gh.pr_review_threads_list: rejects perPage > 100 at the input boundary", async () => {
   const { graphql } = stubGraphqlClient({});
   const reg = captureRegistration();
   registerPRReviewThreadsListTool(reg.register, graphql);
   await assert.rejects(
-    reg.entry.handler({ repo: "owner/repo", number: 7, page_size: 200 }),
+    reg.entry.handler({ repo: "owner/repo", number: 7, perPage: 200 }),
     /gh\.pr_review_threads_list input/,
   );
 });

@@ -60,8 +60,15 @@ export function registerOrgIssueTypesListTool(
     description:
       "List native Issue Types configured on an organization. " +
       "Requires `read:org` (and the org must have native Issue " +
-      "Types enabled). Returns the type's numeric id used by " +
-      "`gh.issue_set_issue_type` to apply it to an issue.",
+      "Types enabled). Returns each type's REST numeric `id`, " +
+      "name, description, color, enabled flag, and ISO-8601 " +
+      "timestamps. Note: this REST `id` is NOT a GraphQL node " +
+      "id and is NOT what `gh.issue_set_issue_type` consumes — " +
+      "the setter takes a GraphQL node id (looks like `IT_kw…`) " +
+      "which is only returned by `gh.org_issue_type_create.node_id`. " +
+      "Capture and cache the node id at create time; the REST " +
+      "id surfaced here is for human / catalog use, not for " +
+      "assignment.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(

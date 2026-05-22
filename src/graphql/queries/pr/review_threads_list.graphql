@@ -1,0 +1,45 @@
+query PRReviewThreadsList(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $first: Int!
+  $after: String
+  $commentsFirst: Int!
+) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviewThreads(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          isResolved
+          path
+          line
+          originalLine
+          diffSide
+          comments(first: $commentsFirst) {
+            totalCount
+            pageInfo {
+              hasNextPage
+            }
+            nodes {
+              author {
+                login
+              }
+              body
+              path
+              line
+              originalLine
+              createdAt
+              url
+            }
+          }
+        }
+      }
+    }
+  }
+}

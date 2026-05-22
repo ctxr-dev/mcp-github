@@ -15,6 +15,8 @@ import { registerPREditTool } from "./edit.js";
 import { registerPRListTool } from "./list.js";
 import { registerPRMergeTool } from "./merge.js";
 import { registerPRRequestReviewsTool } from "./request_reviews.js";
+import { registerPRReviewThreadResolveTool } from "./review_thread_resolve.js";
+import { registerPRReviewThreadsListTool } from "./review_threads_list.js";
 import { registerPRReviewsListTool } from "./reviews_list.js";
 import { registerPRViewTool } from "./view.js";
 
@@ -31,5 +33,7 @@ export function registerPRTools(
   registerPRCommentTool(register, graphql);
   registerPRMergeTool(register, graphql);
   registerPRRequestReviewsTool(register, graphql);
+  registerPRReviewThreadResolveTool(register, graphql);
+  registerPRReviewThreadsListTool(register, graphql);
   registerPRReviewsListTool(register, graphql);
 }

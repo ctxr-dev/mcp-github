@@ -72,7 +72,9 @@ test("gh.issue_parent_get: node_id → node(id) path (no repo lookup)", async ()
   const { graphql, calls } = stubGraphqlClient({
     "issue/parent_get_by_id": (vars: Record<string, unknown>) => {
       assert.equal(vars.issueId, "I_pre");
-      return { node: { parent: sampleRawParent } };
+      return {
+        node: { __typename: "Issue", parent: sampleRawParent },
+      };
     },
   });
   const reg = captureRegistration();
@@ -80,6 +82,20 @@ test("gh.issue_parent_get: node_id → node(id) path (no repo lookup)", async ()
   await reg.entry.handler({ node_id: "I_pre" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.queryName, "issue/parent_get_by_id");
+});
+
+test("gh.issue_parent_get: node_id pointing at a non-Issue surfaces a typed error", async () => {
+  const { graphql } = stubGraphqlClient({
+    "issue/parent_get_by_id": () => ({
+      node: { __typename: "PullRequest" },
+    }),
+  });
+  const reg = captureRegistration();
+  registerIssueParentGetTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ node_id: "PR_x" }),
+    /is a PullRequest, not an Issue/,
+  );
 });
 
 test("gh.issue_parent_get: returns parent: null for a root issue", async () => {

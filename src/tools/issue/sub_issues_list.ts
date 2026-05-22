@@ -125,7 +125,13 @@ interface ByRepoResponse {
 }
 
 interface ByIdResponse {
-  node: { subIssues: SubIssuesConnection } | null;
+  // Wide on purpose: `node(id)` resolves any GraphQL node type;
+  // we narrow on `__typename === "Issue"` at runtime before
+  // reading `subIssues`. Modelling the union with a literal/string
+  // discriminant doesn't narrow cleanly because the literal
+  // overlaps with `string`, so we keep the field-presence
+  // optional and check it after the typename guard.
+  node: { __typename: string; subIssues?: SubIssuesConnection } | null;
 }
 
 export function registerIssueSubIssuesListTool(
@@ -180,6 +186,24 @@ async function fetchConnection(
     if (!data.node) {
       throw new Error(
         `mcp-github: gh.issue_sub_issues_list: issue node_id '${args.node_id}' not found`,
+      );
+    }
+    // `node(id)` resolves any GraphQL node type; guard against a
+    // non-Issue id (PullRequest / Project / etc.). Without this,
+    // GraphQL returns `{ __typename: "..." }` and reading
+    // `subIssues.nodes` would throw a confusing TypeError.
+    if (data.node.__typename !== "Issue") {
+      throw new Error(
+        `mcp-github: gh.issue_sub_issues_list: node_id '${args.node_id}' is a ${data.node.__typename}, not an Issue`,
+      );
+    }
+    if (!data.node.subIssues) {
+      // Defence-in-depth: GraphQL guarantees subIssues is non-null
+      // on an Issue, but the typed-narrowing made this field
+      // optional. If we ever see it missing, surface a clean
+      // error rather than crashing downstream.
+      throw new Error(
+        `mcp-github: gh.issue_sub_issues_list: unexpected empty subIssues for issue node_id '${args.node_id}'`,
       );
     }
     return data.node.subIssues;

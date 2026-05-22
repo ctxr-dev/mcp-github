@@ -1,7 +1,7 @@
 // src/tools/issue/parent_get.ts
 //
 // `gh.issue_parent_get` — fetch an issue's native parent (the
-// counterpart of `gh.issue_add_sub_issue` for read-only walks).
+// read-only counterpart to the sub-issue wiring tool).
 // Returns `{ parent: { number, node_id, url, title, state, repo
 // } | null }`; null means the issue is a root in the sub-issue
 // tree (or has never been wired). Backs the methodology's
@@ -104,7 +104,13 @@ interface ByRepoResponse {
 }
 
 interface ByIdResponse {
-  node: { parent: RawParent | null } | null;
+  // Wide on purpose: `node(id)` resolves any GraphQL node type;
+  // we narrow on `__typename === "Issue"` at runtime before
+  // reading `parent`. Modelling the union with a literal/string
+  // discriminant doesn't narrow cleanly because the literal
+  // overlaps with `string`, so we keep the field-presence
+  // optional and check it after the typename guard.
+  node: { __typename: string; parent?: RawParent | null } | null;
 }
 
 export function registerIssueParentGetTool(
@@ -114,10 +120,9 @@ export function registerIssueParentGetTool(
   register("gh.issue_parent_get", {
     description:
       "Fetch an issue's native parent. Returns `{ parent: null }` " +
-      "for issues that are roots in the sub-issue tree, or that " +
-      "have never been wired with `gh.issue_add_sub_issue`. " +
-      "Accepts either a pre-resolved `node_id` or a " +
-      "`(repo, number)` pair.",
+      "for issues that are roots in the sub-issue tree, or for " +
+      "issues never wired into one. Accepts either a pre-resolved " +
+      "`node_id` or a `(repo, number)` pair.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -135,7 +140,18 @@ export function registerIssueParentGetTool(
             `mcp-github: gh.issue_parent_get: issue node_id '${args.node_id}' not found`,
           );
         }
-        parent = data.node.parent;
+        // `node(id)` resolves any GraphQL node, not just Issues.
+        // Guard against a node_id that points at a PullRequest /
+        // Project / Repository / etc. — without this, GraphQL
+        // returns `{ __typename: "..." }` with no `parent` field
+        // and `data.node.parent` would be `undefined`, crashing
+        // `summariseParent`. Surface a clean error instead.
+        if (data.node.__typename !== "Issue") {
+          throw new Error(
+            `mcp-github: gh.issue_parent_get: node_id '${args.node_id}' is a ${data.node.__typename}, not an Issue`,
+          );
+        }
+        parent = data.node.parent ?? null;
       } else {
         const coords = parseRepoSlug(
           args.repo as string,

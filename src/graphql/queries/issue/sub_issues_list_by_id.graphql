@@ -4,6 +4,7 @@ query IssueSubIssuesListById(
   $after: String
 ) {
   node(id: $issueId) {
+    __typename
     ... on Issue {
       subIssues(first: $first, after: $after) {
         totalCount

@@ -123,6 +123,7 @@ test("gh.issue_sub_issues_list: node_id → node(id).subIssues path", async () =
       assert.equal(vars.issueId, "I_pre");
       return {
         node: {
+          __typename: "Issue",
           subIssues: {
             totalCount: 0,
             pageInfo: { hasNextPage: false, endCursor: null },
@@ -137,6 +138,20 @@ test("gh.issue_sub_issues_list: node_id → node(id).subIssues path", async () =
   await reg.entry.handler({ node_id: "I_pre" });
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.queryName, "issue/sub_issues_list_by_id");
+});
+
+test("gh.issue_sub_issues_list: node_id pointing at a non-Issue surfaces a typed error", async () => {
+  const { graphql } = stubGraphqlClient({
+    "issue/sub_issues_list_by_id": () => ({
+      node: { __typename: "Repository" },
+    }),
+  });
+  const reg = captureRegistration();
+  registerIssueSubIssuesListTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ node_id: "R_x" }),
+    /is a Repository, not an Issue/,
+  );
 });
 
 test("gh.issue_sub_issues_list: cursor + page_size pass through", async () => {

@@ -1,5 +1,6 @@
 query IssueParentGetById($issueId: ID!) {
   node(id: $issueId) {
+    __typename
     ... on Issue {
       parent {
         id

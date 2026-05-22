@@ -44,7 +44,8 @@ function rawReview(overrides: Record<string, unknown> = {}) {
 test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summary", async () => {
   const { graphql, calls } = stubGraphqlClient({
     "pr/reviews_list": (vars: Record<string, unknown>) => {
-      assert.equal(vars.first, 100);
+      // Default perPage is 30 (matches the other list tools).
+      assert.equal(vars.first, 30);
       assert.equal(vars.after, null);
       return {
         repository: {

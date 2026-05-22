@@ -20,7 +20,7 @@ import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import { parseRepoSlug, repoSlugSchema } from "./_shared.js";
 
-const PER_PAGE_DEFAULT = 100;
+const PER_PAGE_DEFAULT = 30;
 const PER_PAGE_MAX = 100;
 
 const inputSchema = {

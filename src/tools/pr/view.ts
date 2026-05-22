@@ -92,30 +92,43 @@ interface Response {
   repository: { pullRequest: RawPR | null } | null;
 }
 
-// Sleeper injection-point lets the unit tests advance fake time
-// without an actual setTimeout. Production path uses the default;
-// tests override via the exported `_setSleeper`.
+// Sleeper + clock injection-points let the unit tests advance
+// fake time without real setTimeout / Date.now. Both have a
+// single source-of-truth default (defined once, referenced from
+// both the initial binding and the reset-to-null path of the
+// `_set*` hook) and both `let` bindings start at the default.
+// The `_set*` hooks below are MODULE-INTERNAL TEST HOOKS — the
+// `_` prefix follows the same convention used by other tools
+// (`_readReviewRequestsOff`, `_resetQueryCache`); they are not
+// part of the package's public API and the test file uses them
+// inside `try { ... } finally { _setX(null); }` blocks so each
+// test restores the defaults before the next runs.
+//
+// Concurrency note: Node's `--test` runs files concurrently but
+// tests WITHIN a file serially, which matches the assumption
+// these module-level hooks rely on. If we ever fan tests out
+// to parallel `test.concurrent(...)`, switch to closure-scoped
+// dependency injection via `registerPRViewTool`.
 type Sleeper = (ms: number) => Promise<void>;
-let sleeper: Sleeper = (ms) =>
+type Clock = () => number;
+
+const defaultSleeper: Sleeper = (ms) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+const defaultClock: Clock = () => Date.now();
 
+let sleeper: Sleeper = defaultSleeper;
+let clock: Clock = defaultClock;
+
+/** @internal — test-only hook; do not import from outside tests/. */
 export function _setSleeper(s: Sleeper | null): void {
-  sleeper = s ?? ((ms) =>
-    new Promise((resolve) => {
-      setTimeout(resolve, ms);
-    }));
+  sleeper = s ?? defaultSleeper;
 }
 
-// Clock injection-point for the wall-clock budget. Defaulting to
-// `Date.now` keeps prod fast; tests override to advance time
-// deterministically alongside the sleeper.
-type Clock = () => number;
-let clock: Clock = () => Date.now();
-
+/** @internal — test-only hook; do not import from outside tests/. */
 export function _setClock(c: Clock | null): void {
-  clock = c ?? (() => Date.now());
+  clock = c ?? defaultClock;
 }
 
 export function registerPRViewTool(
@@ -170,13 +183,17 @@ async function fetchWithOptionalWait(
       POLL_INTERVAL_DEFAULT_SECONDS) * 1000;
   const deadline = clock() + timeoutMs;
   let lastRaw = firstRaw;
-  while (clock() < deadline) {
+  // Capture `now` once per iteration so we only call `clock()`
+  // a single time per pass — easier to reason about under
+  // injected clocks, and consistent across the three comparisons
+  // the loop body does.
+  for (let now = clock(); now < deadline; now = clock()) {
     // Sleep BEFORE re-querying so we don't hammer the API on the
     // first iteration — the initial fetch already used the
     // current state. Cap the sleep at the remaining budget so a
     // 30s timeout with a 25s interval doesn't wait the full 25s
     // past the deadline.
-    const remaining = deadline - clock();
+    const remaining = deadline - now;
     if (remaining <= 0) break;
     await sleeper(Math.min(intervalMs, remaining));
     // Re-check the deadline AFTER sleeping. The sleep may have

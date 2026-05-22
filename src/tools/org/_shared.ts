@@ -10,9 +10,11 @@
 // JSON-Schema-shaped summary of one Issue Type as returned by the
 // REST endpoint `GET /orgs/{org}/issue-types`. The endpoint is
 // not in `@octokit/openapi-types` yet, so we describe the wire
-// format here and pin it via output validation. Fields match
-// GitHub's response 1:1 with snake_case → camelCase for the
-// nullable `is_enabled` (other names are already snake_case).
+// format here and pin it via output validation. Fields pass
+// through 1:1 from GitHub's response: `id` is numeric, `name`/
+// `description`/`color` are strings (the latter two nullable),
+// `is_enabled` is a non-nullable boolean, and the timestamps
+// are ISO-8601 strings.
 export interface IssueTypeSummary {
   id: number;
   name: string;

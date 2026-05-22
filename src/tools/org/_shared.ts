@@ -7,12 +7,16 @@
 // `label-taxonomy` flow to set canonical issue categories without
 // piggybacking on labels.
 
+import type { GraphqlClient } from "../../graphql/client.js";
+
 // JSON-Schema-shaped summary of one Issue Type as returned by the
 // REST endpoint `GET /orgs/{org}/issue-types`. The endpoint is
 // not in `@octokit/openapi-types` yet, so we describe the wire
-// format here and pin it via output validation. Fields match
-// GitHub's response 1:1 with snake_case → camelCase for the
-// nullable `is_enabled` (other names are already snake_case).
+// format here and pin it via output validation. Fields pass
+// through 1:1 from GitHub's response: `id` is numeric, `name`/
+// `description`/`color` are strings (the latter two nullable),
+// `is_enabled` is a non-nullable boolean, and the timestamps
+// are ISO-8601 strings.
 export interface IssueTypeSummary {
   id: number;
   name: string;
@@ -120,11 +124,12 @@ export function fromGraphqlColor(color: string | null): string | null {
 }
 
 // Lookup helper used by org mutations that need the
-// organisation's GraphQL node ID. The shared GraphQL client
-// handles request-level concerns; this just wraps the query in
-// a typed not-found error.
-import type { GraphqlClient } from "../../graphql/client.js";
-
+// organisation's GraphQL node ID. Resolving the org costs only
+// `read:org`; whether the *containing* tool can then mutate
+// depends on the caller's actual scope (`admin:org` for the
+// Issue Type mutations). The not-found error mentions both
+// scopes so a permissions-failure on the read or the write
+// step both surface a useful hint.
 interface OrgIdResponse {
   organization: { id: string } | null;
 }
@@ -137,7 +142,7 @@ export async function lookupOrgNodeId(
   const data = await graphql<OrgIdResponse>("org/_org-id", { login: org });
   if (!data.organization) {
     throw new Error(
-      `mcp-github: ${where}: organisation '${org}' not found or token lacks read:org access`,
+      `mcp-github: ${where}: organisation '${org}' not found, or the token lacks the required scopes (read:org to look the org up, plus admin:org for the Issue Type mutations)`,
     );
   }
   return data.organization.id;

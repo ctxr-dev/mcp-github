@@ -58,6 +58,9 @@ const EXPECTED_TOOLS = [
   "gh.workflow_run_view",
   "gh.workflow_run_cancel",
   "gh.workflow_run_jobs",
+  "gh.org_issue_types_list",
+  "gh.org_issue_type_create",
+  "gh.issue_set_issue_type",
 ];
 
 function frame(payload) {

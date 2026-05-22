@@ -39,15 +39,19 @@ const inputSchema = {
   additionalProperties: false,
 } as const;
 
-// Output shape mirrors the GraphQL `IssueType` fields available
-// off the createIssueType mutation. Note this differs from the
-// REST `IssueTypeSummary` shape (no created_at/updated_at from
-// the mutation), so we expose a slimmer summary here.
+// Output shape mirrors the GraphQL `IssueType` fields needed by
+// callers (the node id, name, color, description, enabled flag).
+// `node_id` rather than `id` to match the naming convention used
+// by every other summary (IssueSummary.node_id, PRSummary.node_id,
+// project tools' item_id). createdAt/updatedAt are NOT exposed
+// or queried here — callers that need the timestamps should hit
+// `gh.org_issue_types_list` after creating, which is the REST
+// path that carries them.
 const outputSchema = {
   type: "object",
-  required: ["id", "name", "color", "description", "is_enabled"],
+  required: ["node_id", "name", "color", "description", "is_enabled"],
   properties: {
-    id: { type: "string" },
+    node_id: { type: "string" },
     name: { type: "string" },
     color: { type: ["string", "null"] },
     description: { type: ["string", "null"] },
@@ -67,7 +71,7 @@ interface Input {
 }
 
 interface Output {
-  id: string;
+  node_id: string;
   name: string;
   color: string | null;
   description: string | null;
@@ -96,11 +100,12 @@ export function registerOrgIssueTypeCreateTool(
     description:
       "Create a native Issue Type on an organisation via the " +
       "`createIssueType` GraphQL mutation. Requires `admin:org` " +
-      "scope. Returns the new type's GraphQL node id — capture it " +
-      "and pass to `gh.issue_set_issue_type` to apply on issues. " +
-      "Color accepts the lowercase form returned by " +
-      "`gh.org_issue_types_list` (gray, blue, green, yellow, " +
-      "orange, red, pink, purple).",
+      "scope. Returns the new type's `node_id` (GraphQL node id) — " +
+      "capture it and pass straight to the setter tool's " +
+      "`issue_type_id` input. Color accepts the lowercase form " +
+      "(gray, blue, green, yellow, orange, red, pink, purple); " +
+      "GraphQL takes the uppercase enum, which we translate at " +
+      "the boundary.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -129,7 +134,7 @@ export function registerOrgIssueTypeCreateTool(
       });
       const raw_type = data.createIssueType.issueType;
       const out: Output = {
-        id: raw_type.id,
+        node_id: raw_type.id,
         name: raw_type.name,
         color: fromGraphqlColor(raw_type.color),
         description: raw_type.description,

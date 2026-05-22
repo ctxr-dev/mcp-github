@@ -55,10 +55,13 @@ const inputSchema = {
       type: "string",
       minLength: 1,
       description:
-        "Issue type GraphQL node id (looks like `IT_kw...`), as " +
-        "returned by `gh.org_issue_type_create` or by " +
-        "`gh.org_issue_types_list`'s `id` field cast to the GraphQL " +
-        "form.",
+        "Issue type GraphQL node id (looks like `IT_kw...`). The " +
+        "canonical source is `gh.org_issue_type_create`'s `node_id` " +
+        "output. Note that `gh.org_issue_types_list` returns the " +
+        "REST numeric id, NOT a GraphQL node id — those are not " +
+        "interchangeable. Until a dedicated list-by-node-id helper " +
+        "lands, capture the node id at create time and cache it " +
+        "in your config.",
     },
   },
   additionalProperties: false,

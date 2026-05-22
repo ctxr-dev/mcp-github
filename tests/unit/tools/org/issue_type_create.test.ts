@@ -64,10 +64,16 @@ test("gh.org_issue_type_create: org-id lookup → createIssueType with mapped co
     color: "purple",
     description: "Top-level mission",
     is_enabled: true,
-  })) as { id: string; color: string | null; name: string; is_enabled: boolean };
-  // Output color normalised back to lowercase.
+  })) as {
+    node_id: string;
+    color: string | null;
+    name: string;
+    is_enabled: boolean;
+  };
+  // Output color normalised back to lowercase; id key is
+  // `node_id` to match the convention on other summaries.
   assert.deepEqual(out, {
-    id: "IT_kw_1",
+    node_id: "IT_kw_1",
     name: "Epic",
     color: "purple",
     description: "Top-level mission",

@@ -276,9 +276,11 @@ test("gh.pr_view: wait_for_mergeable times out and returns last payload as UNKNO
     })) as { mergeable: string };
     // Stayed UNKNOWN; tool returned cleanly, didn't throw.
     assert.equal(out.mergeable, "UNKNOWN");
-    // Initial fetch + retries until the 10s budget is exhausted.
-    // With a 5s interval that's 1 (initial) + 2 retries = 3.
-    assert.equal(calls.length, 3);
+    // Initial fetch + retries within the 10s budget. After the
+    // post-sleep deadline-recheck (A9 fix), the second sleep ends
+    // exactly at t=10 and the loop breaks before kicking off
+    // another fetch — so 1 initial + 1 retry = 2 calls.
+    assert.equal(calls.length, 2);
   } finally {
     _setSleeper(null);
     _setClock(null);
@@ -304,8 +306,11 @@ test("gh.pr_view: wait_for_mergeable defaults to 30s timeout, 5s interval", asyn
       number: 7,
       wait_for_mergeable: {},
     });
-    // 30s / 5s = 6 retries + 1 initial = 7 calls.
-    assert.equal(calls.length, 7);
+    // 30s / 5s budget. After the post-sleep deadline-recheck
+    // (A9 fix), the sixth sleep ends exactly at t=30 and the
+    // loop breaks without a final fetch — so 1 initial + 5
+    // retries = 6 calls.
+    assert.equal(calls.length, 6);
   } finally {
     _setSleeper(null);
     _setClock(null);

@@ -165,6 +165,12 @@ async function fetchWithOptionalWait(
     const remaining = deadline - clock();
     if (remaining <= 0) break;
     await sleeper(Math.min(intervalMs, remaining));
+    // Re-check the deadline AFTER sleeping. The sleep may have
+    // consumed the entire remaining budget; without this guard
+    // we'd kick off another GraphQL fetch (which itself takes
+    // wall-clock time) after the budget is gone, exceeding the
+    // documented `timeout_seconds` ceiling.
+    if (clock() >= deadline) break;
     last = await fetchOnce(graphql, coords, args.number);
     if (last.mergeable !== "UNKNOWN") return last;
   }

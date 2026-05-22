@@ -7,6 +7,8 @@
 // `label-taxonomy` flow to set canonical issue categories without
 // piggybacking on labels.
 
+import type { GraphqlClient } from "../../graphql/client.js";
+
 // JSON-Schema-shaped summary of one Issue Type as returned by the
 // REST endpoint `GET /orgs/{org}/issue-types`. The endpoint is
 // not in `@octokit/openapi-types` yet, so we describe the wire
@@ -85,3 +87,63 @@ export const orgLoginSchema = {
   pattern: "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
   description: "Organization login (e.g. `my-org`).",
 } as const;
+
+// User-facing color values, lowercase to match the REST shape
+// returned by `gh.org_issue_types_list`. GraphQL's
+// `IssueTypeColor` enum uses the uppercase form; `toGraphqlColor`
+// converts at the boundary so the tool's user-facing API stays
+// consistent across REST + GraphQL paths.
+export const ISSUE_TYPE_COLORS = [
+  "gray",
+  "blue",
+  "green",
+  "yellow",
+  "orange",
+  "red",
+  "pink",
+  "purple",
+] as const;
+
+export type IssueTypeColor = (typeof ISSUE_TYPE_COLORS)[number];
+
+export const issueTypeColorSchema = {
+  type: "string",
+  enum: ISSUE_TYPE_COLORS,
+} as const;
+
+export function toGraphqlColor(color: IssueTypeColor): string {
+  return color.toUpperCase();
+}
+
+export function fromGraphqlColor(color: string | null): string | null {
+  // GraphQL returns uppercase enum values (`PURPLE`); normalise
+  // to the lowercase REST form so callers see a single shape
+  // regardless of which path the data came from.
+  if (color === null) return null;
+  return color.toLowerCase();
+}
+
+// Lookup helper used by org mutations that need the
+// organization's GraphQL node ID. Resolving the org costs only
+// `read:org`; whether the *containing* tool can then mutate
+// depends on the caller's actual scope (`admin:org` for the
+// Issue Type mutations). The not-found error mentions both
+// scopes so a permissions-failure on the read or the write
+// step both surface a useful hint.
+interface OrgIdResponse {
+  organization: { id: string } | null;
+}
+
+export async function lookupOrgNodeId(
+  graphql: GraphqlClient,
+  org: string,
+  where: string,
+): Promise<string> {
+  const data = await graphql<OrgIdResponse>("org/_org-id", { login: org });
+  if (!data.organization) {
+    throw new Error(
+      `mcp-github: ${where}: organization '${org}' not found, or the token lacks the required scopes (read:org to look the org up, plus admin:org for the Issue Type mutations)`,
+    );
+  }
+  return data.organization.id;
+}

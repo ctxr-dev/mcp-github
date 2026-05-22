@@ -2,11 +2,10 @@
 //
 // `gh.org_issue_types_list` — list the native Issue Types
 // configured on an org via REST `GET /orgs/{org}/issue-types`.
-// Native Issue Types are GitHub's first-class categorisation
-// that the methodology's `label-taxonomy.md` uses instead of
-// label-based proxies for type:feature / type:bug / etc.
-// Listing requires `read:org`; mutating the org's issue types
-// (a separate concern) requires `admin:org`.
+// Native Issue Types are GitHub's first-class categorisation that
+// the methodology's `label-taxonomy.md` uses (when the optional
+// `admin:org` scope is granted) instead of label-based proxies
+// for type:feature / type:bug / etc.
 //
 // REST rather than GraphQL because the endpoint isn't exposed via
 // GraphQL at the org level (only on individual Issues, via the
@@ -61,12 +60,15 @@ export function registerOrgIssueTypesListTool(
     description:
       "List native Issue Types configured on an organization. " +
       "Requires `read:org` (and the org must have native Issue " +
-      "Types enabled). Returns each type's numeric REST id, name, " +
-      "description, color, enabled flag, and ISO-8601 created_at " +
-      "/ updated_at timestamps. Note: the GraphQL mutation that " +
-      "applies a type to an issue requires the GraphQL node id, " +
-      "not this numeric id; the node id is returned at create " +
-      "time and must be captured then.",
+      "Types enabled). Returns each type's REST numeric `id`, " +
+      "name, description, color, enabled flag, and ISO-8601 " +
+      "timestamps. Note: this REST `id` is NOT a GraphQL node " +
+      "id and is NOT what `gh.issue_set_issue_type` consumes — " +
+      "the setter takes a GraphQL node id (looks like `IT_kw…`) " +
+      "which is only returned by `gh.org_issue_type_create.node_id`. " +
+      "Capture and cache the node id at create time; the REST " +
+      "id surfaced here is for human / catalog use, not for " +
+      "assignment.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -85,25 +87,6 @@ export function registerOrgIssueTypesListTool(
           params: Record<string, unknown>,
         ) => Promise<{ data: unknown }>
       )("GET /orgs/{org}/issue-types", { org: args.org });
-      // Guard against a non-array response shape (transient API
-      // hiccup, future API change, etc.). Surfacing this as a
-      // structured error is far more useful than a confusing
-      // "data.map is not a function" TypeError from below.
-      if (!Array.isArray(response.data)) {
-        // `typeof null` is `"object"`, which is low-signal; tag
-        // it explicitly so the operator can tell a null from a
-        // wrapped-object response (transient API hiccup vs.
-        // permission-stripped payload).
-        const shape =
-          response.data === null
-            ? "null"
-            : typeof response.data === "object"
-              ? "object"
-              : typeof response.data;
-        throw new Error(
-          `mcp-github: gh.org_issue_types_list: unexpected response shape from GET /orgs/${args.org}/issue-types — expected an array of issue types, got ${shape}`,
-        );
-      }
       const data = response.data as RawIssueType[];
       const out: Output = {
         types: data.map(summariseIssueType),

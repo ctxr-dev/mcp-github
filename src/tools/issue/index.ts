@@ -19,6 +19,7 @@ import { registerIssueEditTool } from "./edit.js";
 import { registerIssueListTool } from "./list.js";
 import { registerIssueParentGetTool } from "./parent_get.js";
 import { registerIssueSearchTool } from "./search.js";
+import { registerIssueSetIssueTypeTool } from "./set_issue_type.js";
 import { registerIssueSubIssuesListTool } from "./sub_issues_list.js";
 import { registerIssueViewTool } from "./view.js";
 
@@ -38,4 +39,5 @@ export function registerIssueTools(
   registerIssueAddSubIssueTool(register, graphql);
   registerIssueParentGetTool(register, graphql);
   registerIssueSubIssuesListTool(register, graphql);
+  registerIssueSetIssueTypeTool(register, graphql);
 }

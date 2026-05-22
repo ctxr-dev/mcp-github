@@ -161,9 +161,11 @@ test("gh.issue_add_sub_issue: rejects an empty side at the input boundary", asyn
 test("gh.issue_add_sub_issue: lookup error on parent surfaces with the parent side labelled", async () => {
   const { graphql } = stubGraphqlClient({
     "issue/_issue-lookup": (vars: Record<string, unknown>) => {
-      // Repo missing on the parent lookup, child lookup never
-      // returns because Promise.all rejects on first failure. We
-      // mock both anyway because graphql() is called for both.
+      // Repo missing on the parent lookup → Promise.all rejects
+      // as soon as the parent lookup throws, but the CHILD lookup
+      // is started concurrently and isn't cancellable. We mock
+      // both branches so the child call's body runs cleanly
+      // alongside the rejecting parent call.
       if (vars.number === 1) {
         return { repository: null };
       }

@@ -5,7 +5,7 @@
 // register every issue-domain tool against the registry. Each
 // individual tool lives in its own file to keep the per-tool
 // schemas + handlers manageable; this file just orchestrates.
-// The authoritative list is the function body below — no
+// The function body below is the authoritative list — no
 // hard-coded count in this header so it doesn't drift each time
 // a tool joins or leaves the group.
 
@@ -17,7 +17,9 @@ import { registerIssueCommentTool } from "./comment.js";
 import { registerIssueCreateTool } from "./create.js";
 import { registerIssueEditTool } from "./edit.js";
 import { registerIssueListTool } from "./list.js";
+import { registerIssueParentGetTool } from "./parent_get.js";
 import { registerIssueSearchTool } from "./search.js";
+import { registerIssueSubIssuesListTool } from "./sub_issues_list.js";
 import { registerIssueViewTool } from "./view.js";
 
 type RegisterToolFn = (name: string, entry: ToolEntry) => void;
@@ -34,4 +36,6 @@ export function registerIssueTools(
   registerIssueCommentTool(register, graphql);
   registerIssueSearchTool(register, graphql);
   registerIssueAddSubIssueTool(register, graphql);
+  registerIssueParentGetTool(register, graphql);
+  registerIssueSubIssuesListTool(register, graphql);
 }

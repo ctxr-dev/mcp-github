@@ -1,7 +1,7 @@
 // tests/unit/tools/pr/reviews_list.test.ts
 //
 // gh.pr_reviews_list: pin the GraphQL → summary mapping (incl.
-// commit_oid + submitted_at), the after / perPage input naming,
+// commit_sha + submitted_at), the after / perPage input naming,
 // the top-level pagination output (hasNextPage + endCursor at
 // the root, matching the other list tools), and the not-found
 // error shapes.
@@ -73,7 +73,7 @@ test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summar
       author: string | null;
       state: string;
       submitted_at: string | null;
-      commit_oid: string | null;
+      commit_sha: string | null;
       body: string;
       url: string;
     }>;
@@ -87,7 +87,7 @@ test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summar
     state: "APPROVED",
     submitted_at: "2026-04-02T01:00:00Z",
     body: "LGTM",
-    commit_oid: "deadbeef",
+    commit_sha: "deadbeef",
     url: "https://github.com/owner/repo/pull/7#pullrequestreview-1",
   });
   assert.equal(calls.length, 1);
@@ -148,7 +148,7 @@ test("gh.pr_reviews_list: hasNextPage + endCursor surface at the top of the outp
   assert.equal(out.endCursor, "PAGE_2_CURSOR");
 });
 
-test("gh.pr_reviews_list: PENDING review surfaces submitted_at: null + commit_oid: null", async () => {
+test("gh.pr_reviews_list: PENDING review surfaces submitted_at: null + commit_sha: null", async () => {
   const { graphql } = stubGraphqlClient({
     "pr/reviews_list": () => ({
       repository: {
@@ -178,13 +178,13 @@ test("gh.pr_reviews_list: PENDING review surfaces submitted_at: null + commit_oi
     items: Array<{
       author: string | null;
       submitted_at: string | null;
-      commit_oid: string | null;
+      commit_sha: string | null;
       state: string;
     }>;
   };
   assert.equal(out.items[0]?.state, "PENDING");
   assert.equal(out.items[0]?.submitted_at, null);
-  assert.equal(out.items[0]?.commit_oid, null);
+  assert.equal(out.items[0]?.commit_sha, null);
   assert.equal(out.items[0]?.author, null);
 });
 

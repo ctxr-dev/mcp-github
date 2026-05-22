@@ -12,7 +12,7 @@
 // at the top level (no `pageInfo` wrapper).
 //
 // Per-review fields: id, author, state, submitted_at, body (the
-// full review-summary text, not truncated), commit_oid (the SHA
+// full review-summary text, not truncated), commit_sha (the SHA
 // the review was submitted against), and url.
 
 import type { GraphqlClient } from "../../graphql/client.js";
@@ -57,7 +57,7 @@ const reviewSchema = {
     "state",
     "submitted_at",
     "body",
-    "commit_oid",
+    "commit_sha",
     "url",
   ],
   properties: {
@@ -69,7 +69,7 @@ const reviewSchema = {
     },
     submitted_at: { type: ["string", "null"] },
     body: { type: "string" },
-    commit_oid: { type: ["string", "null"] },
+    commit_sha: { type: ["string", "null"] },
     url: { type: "string" },
   },
   additionalProperties: false,
@@ -116,7 +116,7 @@ interface ReviewSummary {
   state: RawReview["state"];
   submitted_at: string | null;
   body: string;
-  commit_oid: string | null;
+  commit_sha: string | null;
   url: string;
 }
 
@@ -151,7 +151,7 @@ export function registerPRReviewsListTool(
       "`items` / `total` / `hasNextPage` / `endCursor` at top " +
       "of output, matching the other list tools. Each entry " +
       "exposes id, author, state, submitted_at, body (full " +
-      "summary text, not truncated), commit_oid (the SHA the " +
+      "summary text, not truncated), commit_sha (the SHA the " +
       "review was submitted against), and url.",
     inputSchema,
     handler: async (raw) => {
@@ -201,7 +201,7 @@ function summariseReview(raw: RawReview): ReviewSummary {
     state: raw.state,
     submitted_at: raw.submittedAt,
     body: raw.body,
-    commit_oid: raw.commit?.oid ?? null,
+    commit_sha: raw.commit?.oid ?? null,
     url: raw.url,
   };
 }

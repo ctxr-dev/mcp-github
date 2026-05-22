@@ -2,10 +2,11 @@
 //
 // `gh.org_issue_types_list` — list the native Issue Types
 // configured on an org via REST `GET /orgs/{org}/issue-types`.
-// Native Issue Types are GitHub's first-class categorisation that
-// the methodology's `label-taxonomy.md` uses (when the optional
-// `admin:org` scope is granted) instead of label-based proxies
-// for type:feature / type:bug / etc.
+// Native Issue Types are GitHub's first-class categorisation
+// that the methodology's `label-taxonomy.md` uses instead of
+// label-based proxies for type:feature / type:bug / etc.
+// Listing requires `read:org`; mutating the org's issue types
+// (a separate concern) requires `admin:org`.
 //
 // REST rather than GraphQL because the endpoint isn't exposed via
 // GraphQL at the org level (only on individual Issues, via the
@@ -61,9 +62,11 @@ export function registerOrgIssueTypesListTool(
       "List native Issue Types configured on an organisation. " +
       "Requires `read:org` (and the org must have native Issue " +
       "Types enabled). Returns each type's numeric REST id along " +
-      "with name, description, color, and enabled flag — the id is " +
-      "what the setter tool consumes when applying a type to an " +
-      "issue.",
+      "with name, description, color, and enabled flag. Note: " +
+      "the GraphQL mutation that applies a type to an issue " +
+      "requires the GraphQL node id, not this numeric id; the " +
+      "node id is returned at create time and must be captured " +
+      "then.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(

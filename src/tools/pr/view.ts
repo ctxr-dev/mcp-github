@@ -33,6 +33,12 @@ import {
   summarisePR,
 } from "./_shared.js";
 
+// The polling path holds onto the RawPR and summarises only
+// once at the very end (see fetchWithOptionalWait below), so the
+// truncation-warning side effect fires exactly once per tool
+// call rather than once per retry. Matches the methodology's
+// "agent gets one signal per op" expectation.
+
 const WAIT_TIMEOUT_DEFAULT_SECONDS = 30;
 const WAIT_TIMEOUT_MAX_SECONDS = 120;
 const POLL_INTERVAL_DEFAULT_SECONDS = 5;
@@ -141,12 +147,20 @@ async function fetchWithOptionalWait(
   coords: { owner: string; name: string },
   args: Input,
 ): Promise<PRSummary> {
-  const first = await fetchOnce(graphql, coords, args.number);
-  if (
-    args.wait_for_mergeable === undefined ||
-    first.mergeable !== "UNKNOWN"
-  ) {
-    return first;
+  // Fast path: no polling. Summarise with the default warn so
+  // truncation hints land normally.
+  if (args.wait_for_mergeable === undefined) {
+    const raw = await fetchRawOnce(graphql, coords, args.number);
+    return summarisePR(raw);
+  }
+  // Polling path: every intermediate fetch suppresses warnings
+  // (otherwise the same truncation message would spam stderr
+  // once per retry); the FINAL returned payload re-summarises
+  // with the default warn, so the user sees the truncation hint
+  // exactly once per tool call.
+  const firstRaw = await fetchRawOnce(graphql, coords, args.number);
+  if (firstRaw.mergeable !== "UNKNOWN") {
+    return summarisePR(firstRaw);
   }
   const timeoutMs =
     (args.wait_for_mergeable.timeout_seconds ??
@@ -155,7 +169,7 @@ async function fetchWithOptionalWait(
     (args.wait_for_mergeable.poll_interval_seconds ??
       POLL_INTERVAL_DEFAULT_SECONDS) * 1000;
   const deadline = clock() + timeoutMs;
-  let last = first;
+  let lastRaw = firstRaw;
   while (clock() < deadline) {
     // Sleep BEFORE re-querying so we don't hammer the API on the
     // first iteration — the initial fetch already used the
@@ -171,19 +185,23 @@ async function fetchWithOptionalWait(
     // wall-clock time) after the budget is gone, exceeding the
     // documented `timeout_seconds` ceiling.
     if (clock() >= deadline) break;
-    last = await fetchOnce(graphql, coords, args.number);
-    if (last.mergeable !== "UNKNOWN") return last;
+    lastRaw = await fetchRawOnce(graphql, coords, args.number);
+    if (lastRaw.mergeable !== "UNKNOWN") return summarisePR(lastRaw);
   }
-  // Timeout: return the last payload as-is. mergeable stays
-  // UNKNOWN; caller decides whether to retry the whole tool call.
-  return last;
+  // Timeout: summarise the last payload (mergeable stays
+  // UNKNOWN). Use the default warn so any truncation hint fires
+  // exactly once — the intermediate retries suppressed it.
+  // Reset the per-payload warn by re-summarising via a fresh
+  // call rather than re-using a stale summary; cheaper than
+  // tracking warn state.
+  return summarisePR(lastRaw);
 }
 
-async function fetchOnce(
+async function fetchRawOnce(
   graphql: GraphqlClient,
   coords: { owner: string; name: string },
   number: number,
-): Promise<PRSummary> {
+): Promise<RawPR> {
   const data = await graphql<Response>("pr/view", {
     owner: coords.owner,
     name: coords.name,
@@ -203,5 +221,8 @@ async function fetchOnce(
       `mcp-github: gh.pr_view: PR ${coords.owner}/${coords.name}#${number} not found`,
     );
   }
-  return summarisePR(pr);
+  // Return the raw payload; summarisePR runs once at the end of
+  // fetchWithOptionalWait so the truncation-warning side effect
+  // fires exactly once per tool call (even when polling).
+  return pr;
 }

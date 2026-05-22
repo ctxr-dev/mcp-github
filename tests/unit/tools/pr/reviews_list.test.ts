@@ -1,8 +1,10 @@
 // tests/unit/tools/pr/reviews_list.test.ts
 //
 // gh.pr_reviews_list: pin the GraphQL → summary mapping (incl.
-// commit_oid + submitted_at), the cursor + page_size
-// pass-through, and the not-found error shapes.
+// commit_oid + submitted_at), the after / perPage input naming,
+// the top-level pagination output (hasNextPage + endCursor at
+// the root, matching the other list tools), and the not-found
+// error shapes.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -63,16 +65,22 @@ test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summar
     repo: "owner/repo",
     number: 7,
   })) as {
-    totalCount: number;
+    total: number;
+    hasNextPage: boolean;
+    endCursor: string | null;
     reviews: Array<{
       id: string;
       author: string | null;
       state: string;
       submitted_at: string | null;
       commit_oid: string | null;
+      body: string;
+      url: string;
     }>;
   };
-  assert.equal(out.totalCount, 1);
+  assert.equal(out.total, 1);
+  assert.equal(out.hasNextPage, false);
+  assert.equal(out.endCursor, "abc");
   assert.deepEqual(out.reviews[0], {
     id: "PRR_1",
     author: "alice",
@@ -85,7 +93,7 @@ test("gh.pr_reviews_list: maps a full GraphQL response onto the canonical summar
   assert.equal(calls.length, 1);
 });
 
-test("gh.pr_reviews_list: cursor + page_size pass through", async () => {
+test("gh.pr_reviews_list: after + perPage pass through", async () => {
   const { graphql } = stubGraphqlClient({
     "pr/reviews_list": (vars: Record<string, unknown>) => {
       assert.equal(vars.first, 25);
@@ -108,9 +116,36 @@ test("gh.pr_reviews_list: cursor + page_size pass through", async () => {
   await reg.entry.handler({
     repo: "owner/repo",
     number: 7,
-    page_size: 25,
-    cursor: "PAGE2",
+    perPage: 25,
+    after: "PAGE2",
   });
+});
+
+test("gh.pr_reviews_list: hasNextPage + endCursor surface at the top of the output", async () => {
+  // Pin the pagination output contract (flat hasNextPage/endCursor,
+  // not nested under pageInfo) to match the other list tools.
+  const { graphql } = stubGraphqlClient({
+    "pr/reviews_list": () => ({
+      repository: {
+        pullRequest: {
+          reviews: {
+            totalCount: 500,
+            pageInfo: { hasNextPage: true, endCursor: "PAGE_2_CURSOR" },
+            nodes: [],
+          },
+        },
+      },
+    }),
+  });
+  const reg = captureRegistration();
+  registerPRReviewsListTool(reg.register, graphql);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    number: 7,
+  })) as { total: number; hasNextPage: boolean; endCursor: string | null };
+  assert.equal(out.total, 500);
+  assert.equal(out.hasNextPage, true);
+  assert.equal(out.endCursor, "PAGE_2_CURSOR");
 });
 
 test("gh.pr_reviews_list: PENDING review surfaces submitted_at: null + commit_oid: null", async () => {
@@ -179,12 +214,12 @@ test("gh.pr_reviews_list: PR missing throws PR-shaped error", async () => {
   );
 });
 
-test("gh.pr_reviews_list: rejects page_size > 100 at the input boundary", async () => {
+test("gh.pr_reviews_list: rejects perPage > 100 at the input boundary", async () => {
   const { graphql } = stubGraphqlClient({});
   const reg = captureRegistration();
   registerPRReviewsListTool(reg.register, graphql);
   await assert.rejects(
-    reg.entry.handler({ repo: "owner/repo", number: 7, page_size: 200 }),
+    reg.entry.handler({ repo: "owner/repo", number: 7, perPage: 200 }),
     /gh\.pr_reviews_list input/,
   );
 });

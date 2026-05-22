@@ -4,17 +4,24 @@
 // `gh.pr_view` already surfaces a `reviews` array, but caps at
 // the first 100 entries; PRs with > 100 reviews (very long-lived
 // migration PRs, bot-driven repos, etc.) need real pagination to
-// see the tail. Caller drives pagination via `cursor: endCursor`.
+// see the tail.
 //
-// Per-review fields include `submitted_at`, `commit_oid` (the
-// HEAD the review was submitted against), and a short `body`
-// preview so consumers can tell which review was leaving the
-// inline comments rolled up in `gh.pr_review_threads_list`.
+// Pagination follows the codebase-wide convention from
+// `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
+// `perPage` + `after`, output exposes `hasNextPage` + `endCursor`
+// at the top level (no `pageInfo` wrapper).
+//
+// Per-review fields: id, author, state, submitted_at, body (the
+// full review-summary text, not truncated), commit_oid (the SHA
+// the review was submitted against), and url.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import { parseRepoSlug, repoSlugSchema } from "./_shared.js";
+
+const PER_PAGE_DEFAULT = 100;
+const PER_PAGE_MAX = 100;
 
 const inputSchema = {
   type: "object",
@@ -22,8 +29,22 @@ const inputSchema = {
   properties: {
     repo: repoSlugSchema,
     number: { type: "integer", minimum: 1 },
-    cursor: { type: "string", minLength: 1 },
-    page_size: { type: "integer", minimum: 1, maximum: 100 },
+    after: {
+      type: "string",
+      minLength: 1,
+      description:
+        "Opaque cursor from a previous call's `endCursor`. Omit " +
+        "on the first call. Naming matches `gh.pr_list` / " +
+        "`gh.issue_list` / `gh.label_list`.",
+    },
+    perPage: {
+      type: "integer",
+      minimum: 1,
+      maximum: PER_PAGE_MAX,
+      description:
+        `Reviews per page (default ${PER_PAGE_DEFAULT}, max ${PER_PAGE_MAX}). ` +
+        "Naming matches the other paginated list tools.",
+    },
   },
   additionalProperties: false,
 } as const;
@@ -56,19 +77,16 @@ const reviewSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["totalCount", "pageInfo", "reviews"],
+  required: ["reviews", "total", "hasNextPage", "endCursor"],
   properties: {
-    totalCount: { type: "integer", minimum: 0 },
-    pageInfo: {
-      type: "object",
-      required: ["hasNextPage", "endCursor"],
-      properties: {
-        hasNextPage: { type: "boolean" },
-        endCursor: { type: ["string", "null"] },
-      },
-      additionalProperties: false,
-    },
     reviews: { type: "array", items: reviewSchema },
+    total: {
+      type: "integer",
+      minimum: 0,
+      description: "GraphQL totalCount across all pages.",
+    },
+    hasNextPage: { type: "boolean" },
+    endCursor: { type: ["string", "null"] },
   },
   additionalProperties: false,
 } as const;
@@ -78,8 +96,8 @@ type RegisterToolFn = (name: string, entry: ToolEntry) => void;
 interface Input {
   repo: string;
   number: number;
-  cursor?: string;
-  page_size?: number;
+  after?: string;
+  perPage?: number;
 }
 
 interface RawReview {
@@ -103,9 +121,10 @@ interface ReviewSummary {
 }
 
 interface Output {
-  totalCount: number;
-  pageInfo: { hasNextPage: boolean; endCursor: string | null };
   reviews: ReviewSummary[];
+  total: number;
+  hasNextPage: boolean;
+  endCursor: string | null;
 }
 
 interface Response {
@@ -128,10 +147,12 @@ export function registerPRReviewsListTool(
     description:
       "Paginated list of a PR's reviews — the full history, " +
       "including reviews beyond gh.pr_view's first-100 window. " +
-      "Each entry exposes the review id, author, state, " +
-      "submitted_at, body, commit_oid (the SHA the review was " +
-      "submitted against), and url. Caller drives pagination via " +
-      "`cursor: endCursor`.",
+      "Pagination uses `perPage` / `after` on input and " +
+      "`hasNextPage` / `endCursor` at top of output, matching " +
+      "the other list tools. Each entry exposes id, author, " +
+      "state, submitted_at, body (full summary text, not " +
+      "truncated), commit_oid (the SHA the review was submitted " +
+      "against), and url.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -144,8 +165,8 @@ export function registerPRReviewsListTool(
         owner: coords.owner,
         name: coords.name,
         number: args.number,
-        first: args.page_size ?? 100,
-        after: args.cursor ?? null,
+        first: args.perPage ?? PER_PAGE_DEFAULT,
+        after: args.after ?? null,
       });
       if (!data.repository) {
         throw new Error(
@@ -159,9 +180,10 @@ export function registerPRReviewsListTool(
         );
       }
       const out: Output = {
-        totalCount: pr.reviews.totalCount,
-        pageInfo: pr.reviews.pageInfo,
         reviews: pr.reviews.nodes.map(summariseReview),
+        total: pr.reviews.totalCount,
+        hasNextPage: pr.reviews.pageInfo.hasNextPage,
+        endCursor: pr.reviews.pageInfo.endCursor,
       };
       return validate<Output>(
         outputSchema,

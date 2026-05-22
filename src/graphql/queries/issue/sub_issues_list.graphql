@@ -1,0 +1,32 @@
+query IssueSubIssuesList(
+  $owner: String!
+  $name: String!
+  $number: Int!
+  $first: Int!
+  $after: String
+) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      subIssues(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          number
+          title
+          url
+          state
+          repository {
+            owner {
+              login
+            }
+            name
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+query IssueSubIssuesListById(
+  $issueId: ID!
+  $first: Int!
+  $after: String
+) {
+  node(id: $issueId) {
+    ... on Issue {
+      subIssues(first: $first, after: $after) {
+        totalCount
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          id
+          number
+          title
+          url
+          state
+          repository {
+            owner {
+              login
+            }
+            name
+          }
+        }
+      }
+    }
+  }
+}

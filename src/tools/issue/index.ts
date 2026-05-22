@@ -13,7 +13,9 @@ import { registerIssueCommentTool } from "./comment.js";
 import { registerIssueCreateTool } from "./create.js";
 import { registerIssueEditTool } from "./edit.js";
 import { registerIssueListTool } from "./list.js";
+import { registerIssueParentGetTool } from "./parent_get.js";
 import { registerIssueSearchTool } from "./search.js";
+import { registerIssueSubIssuesListTool } from "./sub_issues_list.js";
 import { registerIssueViewTool } from "./view.js";
 
 type RegisterToolFn = (name: string, entry: ToolEntry) => void;
@@ -29,4 +31,6 @@ export function registerIssueTools(
   registerIssueCloseTool(register, graphql);
   registerIssueCommentTool(register, graphql);
   registerIssueSearchTool(register, graphql);
+  registerIssueParentGetTool(register, graphql);
+  registerIssueSubIssuesListTool(register, graphql);
 }

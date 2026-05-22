@@ -1,0 +1,19 @@
+query IssueParentGetById($issueId: ID!) {
+  node(id: $issueId) {
+    ... on Issue {
+      parent {
+        id
+        number
+        title
+        url
+        state
+        repository {
+          owner {
+            login
+          }
+          name
+        }
+      }
+    }
+  }
+}

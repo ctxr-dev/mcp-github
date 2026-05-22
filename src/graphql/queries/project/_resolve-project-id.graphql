@@ -1,0 +1,17 @@
+# Project v2 lives under either Organization or User. We try
+# both in one round-trip and the handler picks whichever returns
+# non-null (a project number is unique within its owner, so at
+# most one of the two branches resolves).
+
+query ProjectIdByOwnerNumber($owner: String!, $number: Int!) {
+  organization(login: $owner) {
+    projectV2(number: $number) {
+      id
+    }
+  }
+  user(login: $owner) {
+    projectV2(number: $number) {
+      id
+    }
+  }
+}

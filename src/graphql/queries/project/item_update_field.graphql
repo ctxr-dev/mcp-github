@@ -1,0 +1,8 @@
+mutation ProjectItemUpdateField($input: UpdateProjectV2ItemFieldValueInput!) {
+  updateProjectV2ItemFieldValue(input: $input) {
+    projectV2Item {
+      id
+      updatedAt
+    }
+  }
+}

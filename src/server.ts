@@ -38,6 +38,7 @@ import { registerIssueTools } from "./tools/issue/index.js";
 import { registerLabelTools } from "./tools/label/index.js";
 import { registerPRTools } from "./tools/pr/index.js";
 import { registerProjectTools } from "./tools/project/index.js";
+import { registerWorkflowTools } from "./tools/workflow/index.js";
 
 // Read the package version from the package.json next to the dist
 // tree at startup, so a single source of truth (package.json) drives
@@ -82,6 +83,11 @@ export async function startServer(): Promise<void> {
   registerLabelTools(registerTool, graphql);
   registerPRTools(registerTool, graphql);
   registerProjectTools(registerTool, graphql);
+  // Workflow tools take `authedRequest` rather than `graphql`
+  // because GitHub's GraphQL coverage of Actions is incomplete
+  // (no cancel mutation; weak filter surface on the run list).
+  // Same auth layer underneath, just a different request path.
+  registerWorkflowTools(registerTool, authedRequest);
 
   const server = new Server(
     {

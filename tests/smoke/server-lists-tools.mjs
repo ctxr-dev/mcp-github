@@ -54,6 +54,10 @@ const EXPECTED_TOOLS = [
   "gh.project_item_update_field",
   "gh.project_field_list",
   "gh.project_items_list",
+  "gh.workflow_runs_list",
+  "gh.workflow_run_view",
+  "gh.workflow_run_cancel",
+  "gh.workflow_run_jobs",
 ];
 
 function frame(payload) {

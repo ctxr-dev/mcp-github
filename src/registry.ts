@@ -18,6 +18,8 @@
 // Nothing in this file is part of the published API. Names beginning
 // with `_` are test-only hooks and may change without a release note.
 
+import { toPublicInputSchema } from "./validation/advertise.js";
+
 export type ToolHandler = (args: Record<string, unknown>) => Promise<unknown>;
 
 export interface ToolEntry {
@@ -52,7 +54,10 @@ export function listToolDescriptors(): Array<{
   return Array.from(tools.entries()).map(([name, t]) => ({
     name,
     description: t.description,
-    inputSchema: t.inputSchema,
+    // Strip top-level oneOf/allOf/anyOf from the ADVERTISED schema.
+    // ajv still enforces them at call time via each handler's
+    // validate() call. See validation/advertise.ts for why.
+    inputSchema: toPublicInputSchema(t.inputSchema),
   }));
 }
 

@@ -98,6 +98,22 @@ test("gh.issue_parent_get: node_id pointing at a non-Issue surfaces a typed erro
   );
 });
 
+test("gh.issue_parent_get: node_id not found surfaces a not-found error", async () => {
+  // `node(id)` returns null when GitHub cannot resolve the
+  // global ID at all (deleted, never existed, or token lacks
+  // access). The handler distinguishes this from the wrong-
+  // typename case so callers see the right hint.
+  const { graphql } = stubGraphqlClient({
+    "issue/parent_get_by_id": () => ({ node: null }),
+  });
+  const reg = captureRegistration();
+  registerIssueParentGetTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ node_id: "I_missing" }),
+    /issue node_id 'I_missing' not found/,
+  );
+});
+
 test("gh.issue_parent_get: returns parent: null for a root issue", async () => {
   const { graphql } = stubGraphqlClient({
     "issue/parent_get": () => ({

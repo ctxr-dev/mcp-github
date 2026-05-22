@@ -14,8 +14,10 @@ import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import { parseRepoSlug, repoSlugSchema } from "./_shared.js";
 
-// Issue-ref schema (matches the `add_sub_issue` shape exactly):
-// either pre-resolved node_id or (repo, number), never both.
+// Issue-ref schema: either pre-resolved `node_id` or
+// `(repo, number)`, never both. `oneOf` enforces the divide so
+// a mis-shaped input fails fast at the schema boundary rather
+// than producing a confusing "issue X not found" downstream.
 const inputSchema = {
   type: "object",
   properties: {

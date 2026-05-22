@@ -205,3 +205,36 @@ test("gh.issue_sub_issues_list: repo missing throws repository-shaped error", as
     /repository 'owner\/repo' not found/,
   );
 });
+
+test("gh.issue_sub_issues_list: issue missing on existing repo throws issue-shaped error", async () => {
+  // Distinct from repo-missing: the repository resolved, but the
+  // issue number doesn't exist. The handler keys off the two-axis
+  // pattern (repo vs issue) so callers see the right not-found
+  // message instead of a misleading "repository not found".
+  const { graphql } = stubGraphqlClient({
+    "issue/sub_issues_list": () => ({
+      repository: { issue: null },
+    }),
+  });
+  const reg = captureRegistration();
+  registerIssueSubIssuesListTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ repo: "owner/repo", number: 999 }),
+    /issue owner\/repo#999 not found/,
+  );
+});
+
+test("gh.issue_sub_issues_list: node_id not found throws not-found", async () => {
+  // `node(id)` returns null when the global ID can't be resolved
+  // at all. Distinct from the wrong-typename case (which is
+  // tested above).
+  const { graphql } = stubGraphqlClient({
+    "issue/sub_issues_list_by_id": () => ({ node: null }),
+  });
+  const reg = captureRegistration();
+  registerIssueSubIssuesListTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({ node_id: "I_missing" }),
+    /issue node_id 'I_missing' not found/,
+  );
+});

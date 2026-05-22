@@ -7,8 +7,11 @@
 //
 // Pagination follows the codebase-wide convention from
 // `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
-// `perPage` + `after`, output exposes `items` + `total` +
-// flat `hasNextPage` + `endCursor` at the top level.
+// `perPage` + `after`, output exposes `items` and flat
+// `hasNextPage` / `endCursor` at the top level. We also surface
+// `total` (the GraphQL totalCount) like `gh.issue_search` does
+// — useful because the `include_closed` filter happens
+// client-side and `total` keeps the unfiltered signal honest.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";
@@ -164,11 +167,13 @@ export function registerIssueSubIssuesListTool(
       "Paginated list of an issue's native sub-issues (the " +
       "downstream side of the sub-issue tree). Accepts either a " +
       "pre-resolved `node_id` or `(repo, number)`. Pagination " +
-      "uses `perPage` / `after` on input and `items` / `total` / " +
-      "`hasNextPage` / `endCursor` at top of output, matching the " +
-      "other list tools. `include_closed` defaults to true; set " +
-      "false to drop CLOSED children client-side (`total` " +
-      "remains the GraphQL total).",
+      "uses `perPage` / `after` on input and the flat " +
+      "`hasNextPage` / `endCursor` shape on output, matching the " +
+      "other list tools; we also surface `total` (the GraphQL " +
+      "totalCount) like `gh.issue_search` does so the " +
+      "client-side `include_closed` filter doesn't hide how " +
+      "many children exist. `include_closed` defaults to true; " +
+      "set false to drop CLOSED children client-side.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(

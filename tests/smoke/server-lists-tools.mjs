@@ -39,6 +39,7 @@ const EXPECTED_TOOLS = [
   "gh.issue_close",
   "gh.issue_comment",
   "gh.issue_search",
+  "gh.issue_add_sub_issue",
   "gh.label_create",
   "gh.label_list",
   "gh.label_edit",

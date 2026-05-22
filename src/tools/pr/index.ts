@@ -16,6 +16,7 @@ import { registerPRListTool } from "./list.js";
 import { registerPRMergeTool } from "./merge.js";
 import { registerPRRequestReviewsTool } from "./request_reviews.js";
 import { registerPRReviewThreadResolveTool } from "./review_thread_resolve.js";
+import { registerPRReviewThreadsListTool } from "./review_threads_list.js";
 import { registerPRViewTool } from "./view.js";
 
 type RegisterToolFn = (name: string, entry: ToolEntry) => void;
@@ -32,4 +33,5 @@ export function registerPRTools(
   registerPRMergeTool(register, graphql);
   registerPRRequestReviewsTool(register, graphql);
   registerPRReviewThreadResolveTool(register, graphql);
+  registerPRReviewThreadsListTool(register, graphql);
 }

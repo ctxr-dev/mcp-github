@@ -55,6 +55,7 @@ export const sampleRawPR = {
   merged: false,
   mergedAt: null,
   mergeCommit: null,
+  reviewDecision: "APPROVED" as const,
   labels: {
     pageInfo: { hasNextPage: false },
     nodes: [{ name: "enhancement" }],
@@ -70,7 +71,11 @@ export const sampleRawPR = {
   reviews: {
     pageInfo: { hasNextPage: false },
     nodes: [
-      { state: "APPROVED" as const, author: { login: "carol" } },
+      {
+        state: "APPROVED" as const,
+        author: { login: "carol" },
+        submittedAt: "2026-04-02T01:00:00Z",
+      },
     ],
   },
   reviewThreads: {

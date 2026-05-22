@@ -1,8 +1,9 @@
 // tests/unit/tools/issue/sub_issues_list.test.ts
 //
 // gh.issue_sub_issues_list: pin the two ref-input paths, the
-// include_closed filter, the page_size + cursor pass-through,
-// and the not-found error shapes.
+// include_closed filter, the perPage + after pass-through, the
+// top-level items / total / hasNextPage / endCursor output
+// shape, and the not-found error shapes.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -46,7 +47,8 @@ function rawChild(overrides: Record<string, unknown> = {}) {
 test("gh.issue_sub_issues_list: (repo, number) → repository.issue.subIssues path with defaults", async () => {
   const { graphql, calls } = stubGraphqlClient({
     "issue/sub_issues_list": (vars: Record<string, unknown>) => {
-      assert.equal(vars.first, 100);
+      // Default perPage is 30 (matches the other list tools).
+      assert.equal(vars.first, 30);
       assert.equal(vars.after, null);
       assert.equal(vars.number, 1);
       return {
@@ -71,12 +73,12 @@ test("gh.issue_sub_issues_list: (repo, number) → repository.issue.subIssues pa
     repo: "owner/repo",
     number: 1,
   })) as {
-    totalCount: number;
-    children: Array<{ number: number; repo: string }>;
+    total: number;
+    items: Array<{ number: number; repo: string }>;
   };
-  assert.equal(out.totalCount, 2);
-  assert.equal(out.children.length, 2);
-  assert.equal(out.children[0]?.repo, "owner/repo");
+  assert.equal(out.total, 2);
+  assert.equal(out.items.length, 2);
+  assert.equal(out.items[0]?.repo, "owner/repo");
   assert.equal(calls.length, 1);
 });
 
@@ -105,14 +107,14 @@ test("gh.issue_sub_issues_list: include_closed=false filters CLOSED children out
     number: 1,
     include_closed: false,
   })) as {
-    totalCount: number;
-    children: Array<{ number: number; state: string }>;
+    total: number;
+    items: Array<{ number: number; state: string }>;
   };
   // totalCount stays GraphQL-truth even after filtering.
-  assert.equal(out.totalCount, 3);
-  assert.equal(out.children.length, 2);
+  assert.equal(out.total, 3);
+  assert.equal(out.items.length, 2);
   assert.equal(
-    out.children.every((c) => c.state === "OPEN"),
+    out.items.every((c) => c.state === "OPEN"),
     true,
   );
 });
@@ -154,7 +156,7 @@ test("gh.issue_sub_issues_list: node_id pointing at a non-Issue surfaces a typed
   );
 });
 
-test("gh.issue_sub_issues_list: cursor + page_size pass through", async () => {
+test("gh.issue_sub_issues_list: after + perPage pass through", async () => {
   const { graphql } = stubGraphqlClient({
     "issue/sub_issues_list": (vars: Record<string, unknown>) => {
       assert.equal(vars.first, 25);
@@ -177,17 +179,17 @@ test("gh.issue_sub_issues_list: cursor + page_size pass through", async () => {
   await reg.entry.handler({
     repo: "owner/repo",
     number: 1,
-    page_size: 25,
-    cursor: "PAGE2",
+    perPage: 25,
+    after: "PAGE2",
   });
 });
 
-test("gh.issue_sub_issues_list: rejects page_size > 100 at the input boundary", async () => {
+test("gh.issue_sub_issues_list: rejects perPage > 100 at the input boundary", async () => {
   const { graphql } = stubGraphqlClient({});
   const reg = captureRegistration();
   registerIssueSubIssuesListTool(reg.register, graphql);
   await assert.rejects(
-    reg.entry.handler({ repo: "owner/repo", number: 1, page_size: 200 }),
+    reg.entry.handler({ repo: "owner/repo", number: 1, perPage: 200 }),
     /gh\.issue_sub_issues_list input/,
   );
 });

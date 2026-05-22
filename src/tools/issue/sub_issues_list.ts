@@ -4,12 +4,19 @@
 // native sub-issues. Counterpart to `gh.issue_parent_get` for
 // the downstream walk. Backs `parallel-validation.md:85`
 // (validator checks each child's body cites the parent).
-// Caller-driven pagination via `cursor: endCursor`.
+//
+// Pagination follows the codebase-wide convention from
+// `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
+// `perPage` + `after`, output exposes `items` + `total` +
+// flat `hasNextPage` + `endCursor` at the top level.
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";
 import { validate } from "../../validation/validator.js";
 import { parseRepoSlug, repoSlugSchema } from "./_shared.js";
+
+const PER_PAGE_DEFAULT = 30;
+const PER_PAGE_MAX = 100;
 
 const inputSchema = {
   type: "object",
@@ -17,15 +24,29 @@ const inputSchema = {
     node_id: { type: "string", minLength: 1 },
     repo: repoSlugSchema,
     number: { type: "integer", minimum: 1 },
-    cursor: { type: "string", minLength: 1 },
-    page_size: { type: "integer", minimum: 1, maximum: 100 },
+    after: {
+      type: "string",
+      minLength: 1,
+      description:
+        "Opaque cursor from a previous call's `endCursor`. Omit " +
+        "on the first call. Naming matches the other paginated " +
+        "list tools (gh.issue_list / gh.pr_list / gh.label_list).",
+    },
+    perPage: {
+      type: "integer",
+      minimum: 1,
+      maximum: PER_PAGE_MAX,
+      description:
+        `Children per page (default ${PER_PAGE_DEFAULT}, max ${PER_PAGE_MAX}). ` +
+        "Naming matches the other paginated list tools.",
+    },
     include_closed: {
       type: "boolean",
       description:
         "Default true: returns every linked child regardless of " +
         "state. Set false to filter out CLOSED children " +
-        "client-side; `totalCount` still reflects the GraphQL " +
-        "total across open + closed.",
+        "client-side; `total` still reflects the GraphQL total " +
+        "across open + closed.",
     },
   },
   oneOf: [
@@ -57,19 +78,18 @@ const childSchema = {
 
 const outputSchema = {
   type: "object",
-  required: ["totalCount", "pageInfo", "children"],
+  required: ["items", "total", "hasNextPage", "endCursor"],
   properties: {
-    totalCount: { type: "integer", minimum: 0 },
-    pageInfo: {
-      type: "object",
-      required: ["hasNextPage", "endCursor"],
-      properties: {
-        hasNextPage: { type: "boolean" },
-        endCursor: { type: ["string", "null"] },
-      },
-      additionalProperties: false,
+    items: { type: "array", items: childSchema },
+    total: {
+      type: "integer",
+      minimum: 0,
+      description:
+        "GraphQL totalCount across open + closed children — " +
+        "unaffected by client-side `include_closed` filtering.",
     },
-    children: { type: "array", items: childSchema },
+    hasNextPage: { type: "boolean" },
+    endCursor: { type: ["string", "null"] },
   },
   additionalProperties: false,
 } as const;
@@ -80,8 +100,8 @@ interface Input {
   node_id?: string;
   repo?: string;
   number?: number;
-  cursor?: string;
-  page_size?: number;
+  after?: string;
+  perPage?: number;
   include_closed?: boolean;
 }
 
@@ -107,9 +127,10 @@ interface ChildSummary {
 }
 
 interface Output {
-  totalCount: number;
-  pageInfo: { hasNextPage: boolean; endCursor: string | null };
-  children: ChildSummary[];
+  items: ChildSummary[];
+  total: number;
+  hasNextPage: boolean;
+  endCursor: string | null;
 }
 
 interface SubIssuesConnection {
@@ -142,10 +163,12 @@ export function registerIssueSubIssuesListTool(
     description:
       "Paginated list of an issue's native sub-issues (the " +
       "downstream side of the sub-issue tree). Accepts either a " +
-      "pre-resolved `node_id` or `(repo, number)`. Caller drives " +
-      "pagination via `cursor: endCursor`. `include_closed` " +
-      "defaults to true; set false to drop CLOSED children " +
-      "client-side (totalCount remains the GraphQL total).",
+      "pre-resolved `node_id` or `(repo, number)`. Pagination " +
+      "uses `perPage` / `after` on input and `items` / `total` / " +
+      "`hasNextPage` / `endCursor` at top of output, matching the " +
+      "other list tools. `include_closed` defaults to true; set " +
+      "false to drop CLOSED children client-side (`total` " +
+      "remains the GraphQL total).",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -159,9 +182,10 @@ export function registerIssueSubIssuesListTool(
         ? subIssues.nodes
         : subIssues.nodes.filter((n) => n.state !== "CLOSED");
       const out: Output = {
-        totalCount: subIssues.totalCount,
-        pageInfo: subIssues.pageInfo,
-        children: filtered.map(summariseChild),
+        items: filtered.map(summariseChild),
+        total: subIssues.totalCount,
+        hasNextPage: subIssues.pageInfo.hasNextPage,
+        endCursor: subIssues.pageInfo.endCursor,
       };
       return validate<Output>(
         outputSchema,
@@ -176,8 +200,8 @@ async function fetchConnection(
   graphql: GraphqlClient,
   args: Input,
 ): Promise<SubIssuesConnection> {
-  const first = args.page_size ?? 100;
-  const after = args.cursor ?? null;
+  const first = args.perPage ?? PER_PAGE_DEFAULT;
+  const after = args.after ?? null;
   if (typeof args.node_id === "string") {
     const data = await graphql<ByIdResponse>(
       "issue/sub_issues_list_by_id",

@@ -123,7 +123,7 @@ test("gh.org_issue_type_create: org-not-found surfaces a structured error", asyn
   registerOrgIssueTypeCreateTool(reg.register, graphql);
   await assert.rejects(
     reg.entry.handler({ org: "my-org", name: "Epic" }),
-    /organisation 'my-org' not found/,
+    /organization 'my-org' not found/,
   );
 });
 

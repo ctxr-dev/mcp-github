@@ -1,7 +1,7 @@
 // src/tools/org/_shared.ts
 //
 // Helpers shared across the gh.org_* tools. The org domain covers
-// organisation-scoped operations that don't fit under issue / pr
+// organization-scoped operations that don't fit under issue / pr
 // / label / project — at v0.1 that's just GitHub's native "Issue
 // Types" (REST + GraphQL) used by the methodology's optional
 // `label-taxonomy` flow to set canonical issue categories without
@@ -85,7 +85,7 @@ export const orgLoginSchema = {
   // leading/trailing/double hyphens. Conservative pattern
   // matches the same form the API accepts.
   pattern: "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
-  description: "Organisation login (e.g. `my-org`).",
+  description: "Organization login (e.g. `my-org`).",
 } as const;
 
 // User-facing color values, lowercase to match the REST shape
@@ -124,7 +124,7 @@ export function fromGraphqlColor(color: string | null): string | null {
 }
 
 // Lookup helper used by org mutations that need the
-// organisation's GraphQL node ID. Resolving the org costs only
+// organization's GraphQL node ID. Resolving the org costs only
 // `read:org`; whether the *containing* tool can then mutate
 // depends on the caller's actual scope (`admin:org` for the
 // Issue Type mutations). The not-found error mentions both
@@ -142,7 +142,7 @@ export async function lookupOrgNodeId(
   const data = await graphql<OrgIdResponse>("org/_org-id", { login: org });
   if (!data.organization) {
     throw new Error(
-      `mcp-github: ${where}: organisation '${org}' not found, or the token lacks the required scopes (read:org to look the org up, plus admin:org for the Issue Type mutations)`,
+      `mcp-github: ${where}: organization '${org}' not found, or the token lacks the required scopes (read:org to look the org up, plus admin:org for the Issue Type mutations)`,
     );
   }
   return data.organization.id;

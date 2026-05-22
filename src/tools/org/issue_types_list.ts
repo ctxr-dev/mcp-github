@@ -58,7 +58,7 @@ export function registerOrgIssueTypesListTool(
 ): void {
   register("gh.org_issue_types_list", {
     description:
-      "List native Issue Types configured on an organisation. " +
+      "List native Issue Types configured on an organization. " +
       "Requires `read:org` (and the org must have native Issue " +
       "Types enabled). Returns the type's numeric id used by " +
       "`gh.issue_set_issue_type` to apply it to an issue.",

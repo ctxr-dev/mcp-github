@@ -98,7 +98,7 @@ export function registerOrgIssueTypeCreateTool(
 ): void {
   register("gh.org_issue_type_create", {
     description:
-      "Create a native Issue Type on an organisation via the " +
+      "Create a native Issue Type on an organization via the " +
       "`createIssueType` GraphQL mutation. Requires `admin:org` " +
       "scope. Returns the new type's `node_id` (GraphQL node id) — " +
       "capture it and pass straight to the setter tool's " +

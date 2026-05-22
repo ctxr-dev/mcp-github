@@ -2,11 +2,12 @@
 //
 // `gh.pr_review_threads_list` — paginated list of a PR's review
 // threads (the conversation containers around inline review
-// comments). Each thread carries the `id` that the resolver tool
-// consumes and a per-thread preview of comments (file path,
-// line, body, author, timestamp). The methodology's pr-loop
-// flow drives this in a loop: read unresolved threads → address
-// each → call the resolver per thread.
+// comments). Each thread carries the GraphQL `id` callers feed
+// into GitHub's `resolveReviewThread` mutation, plus a per-
+// thread preview of comments (file path, line, body, author,
+// timestamp). The methodology's pr-loop flow drives this in a
+// loop: read unresolved threads → address each → mark each as
+// resolved.
 //
 // Pagination follows the codebase-wide convention from
 // `gh.issue_list` / `gh.pr_list` / `gh.label_list`: input uses
@@ -230,14 +231,14 @@ export function registerPRReviewThreadsListTool(
     description:
       "Paginated list of a PR's review threads (the conversation " +
       "containers around inline review comments). Returns each " +
-      "thread's `id` (consumed by the resolver tool) plus a " +
-      "per-thread preview of comments (path, line, author, body, " +
-      "timestamp). Pagination uses `perPage` / `after` on input " +
-      "and `hasNextPage` / `endCursor` at top of output, matching " +
-      "the other list tools. `include_resolved` defaults to false " +
-      "because the methodology's same-turn-resolve rule means the " +
-      "agent usually only cares about open threads — `total` " +
-      "still reflects the GraphQL total (all threads).",
+      "thread's GraphQL `id` (suitable for `resolveReviewThread`) " +
+      "plus a per-thread preview of comments (path, line, author, " +
+      "body, timestamp). Pagination uses `perPage` / `after` on " +
+      "input and `hasNextPage` / `endCursor` at top of output, " +
+      "matching the other list tools. `include_resolved` defaults " +
+      "to false because the methodology's same-turn-resolve rule " +
+      "means the agent usually only cares about open threads — " +
+      "`total` still reflects the GraphQL total (all threads).",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(

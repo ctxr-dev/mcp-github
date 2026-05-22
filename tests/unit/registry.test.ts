@@ -69,6 +69,42 @@ test("listToolDescriptors: returns the JSON-Schema-shaped list ListTools hands b
   assert.equal(descriptors[1]?.name, "gh.beta");
 });
 
+test("listToolDescriptors: strips top-level oneOf/allOf/anyOf but keeps nested unions", () => {
+  // The Anthropic tool-use API rejects a top-level oneOf/allOf/anyOf,
+  // so the ADVERTISED schema must not carry one even though the stored
+  // entry keeps it for ajv validation at call time.
+  const schema = {
+    type: "object",
+    properties: {
+      url: { type: "string" },
+      repo: { type: "string" },
+      value: { type: "object", oneOf: [{ required: ["a"] }] },
+    },
+    oneOf: [{ required: ["url"] }, { required: ["repo"] }],
+    additionalProperties: false,
+  };
+  registerTool("gh.union", {
+    description: "u",
+    inputSchema: schema,
+    handler: async () => ({}),
+  });
+  const advertised = listToolDescriptors()[0]?.inputSchema as Record<
+    string,
+    unknown
+  >;
+  assert.equal("oneOf" in advertised, false);
+  // Nested union under a property is valid and must survive.
+  const props = advertised["properties"] as Record<string, unknown>;
+  const value = props["value"] as Record<string, unknown>;
+  assert.ok(Array.isArray(value["oneOf"]));
+  // The stored entry keeps the full schema so ajv still enforces it.
+  const stored = (getToolEntry("gh.union")?.inputSchema ?? {}) as Record<
+    string,
+    unknown
+  >;
+  assert.ok("oneOf" in stored);
+});
+
 test("getToolEntry: returns the registered entry, or undefined for unknown names", () => {
   registerTool("gh.known", sampleEntry);
   assert.equal(getToolEntry("gh.known"), sampleEntry);

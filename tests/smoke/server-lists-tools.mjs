@@ -151,6 +151,24 @@ child.stdout.on("data", (chunk) => {
             `expected tools ${JSON.stringify(expected)}, got ${JSON.stringify(names)}`,
           );
         }
+        // The Anthropic tool-use API rejects oneOf/allOf/anyOf at the
+        // top level of a tool input_schema. A server that advertises
+        // one breaks every Anthropic-backed client (and its sub-agents,
+        // which receive the full tool surface), so guard the real wire
+        // output here, not just the in-process helper.
+        const FORBIDDEN_TOP_LEVEL = ["oneOf", "allOf", "anyOf"];
+        const offenders = tools
+          .filter(
+            (t) =>
+              t.inputSchema &&
+              FORBIDDEN_TOP_LEVEL.some((k) => k in t.inputSchema),
+          )
+          .map((t) => t.name);
+        if (offenders.length > 0) {
+          throw new Error(
+            `tools advertise a top-level oneOf/allOf/anyOf, which the Anthropic API rejects: ${offenders.join(", ")}`,
+          );
+        }
         process.stdout.write(
           `smoke: server lists ${names.length} tool(s) as expected: ${names.join(", ")}\n`,
         );

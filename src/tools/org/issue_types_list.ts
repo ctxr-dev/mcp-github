@@ -61,12 +61,12 @@ export function registerOrgIssueTypesListTool(
     description:
       "List native Issue Types configured on an organization. " +
       "Requires `read:org` (and the org must have native Issue " +
-      "Types enabled). Returns each type's numeric REST id along " +
-      "with name, description, color, and enabled flag. Note: " +
-      "the GraphQL mutation that applies a type to an issue " +
-      "requires the GraphQL node id, not this numeric id; the " +
-      "node id is returned at create time and must be captured " +
-      "then.",
+      "Types enabled). Returns each type's numeric REST id, name, " +
+      "description, color, enabled flag, and ISO-8601 created_at " +
+      "/ updated_at timestamps. Note: the GraphQL mutation that " +
+      "applies a type to an issue requires the GraphQL node id, " +
+      "not this numeric id; the node id is returned at create " +
+      "time and must be captured then.",
     inputSchema,
     handler: async (raw) => {
       const args = validate<Input>(
@@ -90,8 +90,18 @@ export function registerOrgIssueTypesListTool(
       // structured error is far more useful than a confusing
       // "data.map is not a function" TypeError from below.
       if (!Array.isArray(response.data)) {
+        // `typeof null` is `"object"`, which is low-signal; tag
+        // it explicitly so the operator can tell a null from a
+        // wrapped-object response (transient API hiccup vs.
+        // permission-stripped payload).
+        const shape =
+          response.data === null
+            ? "null"
+            : typeof response.data === "object"
+              ? "object"
+              : typeof response.data;
         throw new Error(
-          `mcp-github: gh.org_issue_types_list: unexpected response shape from GET /orgs/${args.org}/issue-types — expected an array of issue types, got ${typeof response.data}`,
+          `mcp-github: gh.org_issue_types_list: unexpected response shape from GET /orgs/${args.org}/issue-types — expected an array of issue types, got ${shape}`,
         );
       }
       const data = response.data as RawIssueType[];

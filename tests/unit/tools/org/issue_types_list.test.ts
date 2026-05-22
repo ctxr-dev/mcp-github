@@ -59,6 +59,8 @@ test("gh.org_issue_types_list: maps every wire field onto the summary 1:1", asyn
       color: string | null;
       description: string | null;
       is_enabled: boolean;
+      created_at: string;
+      updated_at: string;
     }>;
   };
   assert.deepEqual(out.types[0], {

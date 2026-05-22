@@ -7,7 +7,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { registerPRViewTool } from "../../../../src/tools/pr/view.ts";
+import {
+  _setClock,
+  _setSleeper,
+  registerPRViewTool,
+} from "../../../../src/tools/pr/view.ts";
 import type { ToolEntry } from "../../../../src/registry.ts";
 import { sampleRawPR, stubGraphqlClient } from "./_fixtures.ts";
 
@@ -205,6 +209,155 @@ test("gh.pr_view: PENDING review with null submittedAt passes through as null", 
   };
   assert.equal(out.reviews[0]?.state, "PENDING");
   assert.equal(out.reviews[0]?.submitted_at, null);
+});
+
+// Build a deterministic test clock + sleeper that advance virtual
+// time on each sleep. Used by the wait_for_mergeable tests so the
+// suite doesn't actually wait 5+ seconds per case.
+function makeFakeTimeControls(initialMs = 1_000_000) {
+  let now = initialMs;
+  const sleeper = async (ms: number) => {
+    now += ms;
+  };
+  const clock = () => now;
+  return { sleeper, clock };
+}
+
+test("gh.pr_view: wait_for_mergeable polls until mergeable resolves, then returns", async () => {
+  const { sleeper, clock } = makeFakeTimeControls();
+  _setSleeper(sleeper);
+  _setClock(clock);
+  try {
+    let call = 0;
+    const { graphql, calls } = stubGraphqlClient({
+      "pr/view": () => {
+        call += 1;
+        // Calls 1+2 return UNKNOWN; call 3 returns MERGEABLE.
+        const mergeable = call < 3 ? "UNKNOWN" : "MERGEABLE";
+        return {
+          repository: { pullRequest: { ...sampleRawPR, mergeable } },
+        };
+      },
+    });
+    const reg = captureRegistration();
+    registerPRViewTool(reg.register, graphql);
+    const out = (await reg.entry.handler({
+      repo: "owner/repo",
+      number: 7,
+      wait_for_mergeable: { timeout_seconds: 30, poll_interval_seconds: 5 },
+    })) as { mergeable: string };
+    assert.equal(out.mergeable, "MERGEABLE");
+    // 3 GraphQL calls: initial + 2 retries.
+    assert.equal(calls.length, 3);
+  } finally {
+    _setSleeper(null);
+    _setClock(null);
+  }
+});
+
+test("gh.pr_view: wait_for_mergeable times out and returns last payload as UNKNOWN", async () => {
+  const { sleeper, clock } = makeFakeTimeControls();
+  _setSleeper(sleeper);
+  _setClock(clock);
+  try {
+    const { graphql, calls } = stubGraphqlClient({
+      "pr/view": () => ({
+        repository: {
+          pullRequest: { ...sampleRawPR, mergeable: "UNKNOWN" },
+        },
+      }),
+    });
+    const reg = captureRegistration();
+    registerPRViewTool(reg.register, graphql);
+    const out = (await reg.entry.handler({
+      repo: "owner/repo",
+      number: 7,
+      wait_for_mergeable: { timeout_seconds: 10, poll_interval_seconds: 5 },
+    })) as { mergeable: string };
+    // Stayed UNKNOWN; tool returned cleanly, didn't throw.
+    assert.equal(out.mergeable, "UNKNOWN");
+    // Initial fetch + retries until the 10s budget is exhausted.
+    // With a 5s interval that's 1 (initial) + 2 retries = 3.
+    assert.equal(calls.length, 3);
+  } finally {
+    _setSleeper(null);
+    _setClock(null);
+  }
+});
+
+test("gh.pr_view: wait_for_mergeable defaults to 30s timeout, 5s interval", async () => {
+  const { sleeper, clock } = makeFakeTimeControls();
+  _setSleeper(sleeper);
+  _setClock(clock);
+  try {
+    const { graphql, calls } = stubGraphqlClient({
+      "pr/view": () => ({
+        repository: {
+          pullRequest: { ...sampleRawPR, mergeable: "UNKNOWN" },
+        },
+      }),
+    });
+    const reg = captureRegistration();
+    registerPRViewTool(reg.register, graphql);
+    await reg.entry.handler({
+      repo: "owner/repo",
+      number: 7,
+      wait_for_mergeable: {},
+    });
+    // 30s / 5s = 6 retries + 1 initial = 7 calls.
+    assert.equal(calls.length, 7);
+  } finally {
+    _setSleeper(null);
+    _setClock(null);
+  }
+});
+
+test("gh.pr_view: no wait_for_mergeable → single fetch even if mergeable is UNKNOWN", async () => {
+  // The default behaviour is a single round-trip; polling is
+  // explicit opt-in.
+  const { graphql, calls } = stubGraphqlClient({
+    "pr/view": () => ({
+      repository: {
+        pullRequest: { ...sampleRawPR, mergeable: "UNKNOWN" },
+      },
+    }),
+  });
+  const reg = captureRegistration();
+  registerPRViewTool(reg.register, graphql);
+  const out = (await reg.entry.handler({
+    repo: "owner/repo",
+    number: 7,
+  })) as { mergeable: string };
+  assert.equal(out.mergeable, "UNKNOWN");
+  assert.equal(calls.length, 1);
+});
+
+test("gh.pr_view: rejects timeout_seconds > 120 at the input boundary", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRViewTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 7,
+      wait_for_mergeable: { timeout_seconds: 999 },
+    }),
+    /gh\.pr_view input/,
+  );
+});
+
+test("gh.pr_view: rejects poll_interval_seconds > 30 at the input boundary", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRViewTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      repo: "owner/repo",
+      number: 7,
+      wait_for_mergeable: { poll_interval_seconds: 60 },
+    }),
+    /gh\.pr_view input/,
+  );
 });
 
 test("gh.pr_view: status_checks_state is null when there's no rollup", async () => {

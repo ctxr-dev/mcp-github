@@ -16,6 +16,7 @@ mutation PREdit($input: UpdatePullRequestInput!) {
       mergeCommit {
         oid
       }
+      reviewDecision
       labels(first: 100) {
         pageInfo {
           hasNextPage
@@ -47,6 +48,7 @@ mutation PREdit($input: UpdatePullRequestInput!) {
           author {
             login
           }
+          submittedAt
         }
       }
       reviewThreads(first: 100) {

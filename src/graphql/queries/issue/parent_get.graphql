@@ -1,0 +1,19 @@
+query IssueParentGet($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      parent {
+        id
+        number
+        title
+        url
+        state
+        repository {
+          owner {
+            login
+          }
+          name
+        }
+      }
+    }
+  }
+}

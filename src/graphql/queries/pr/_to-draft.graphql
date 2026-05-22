@@ -16,6 +16,7 @@ mutation PRToDraft($input: ConvertPullRequestToDraftInput!) {
       mergeCommit {
         oid
       }
+      reviewDecision
       labels(first: 100) {
         pageInfo {
           hasNextPage
@@ -47,6 +48,7 @@ mutation PRToDraft($input: ConvertPullRequestToDraftInput!) {
           author {
             login
           }
+          submittedAt
         }
       }
       reviewThreads(first: 100) {

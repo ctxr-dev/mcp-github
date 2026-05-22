@@ -9,11 +9,6 @@
 // + tool registration chain end-to-end without pulling in the
 // unit-test framework.
 //
-// The EXPECTED_TOOLS array below is the authoritative list of
-// the current tool surface; this header used to also carry a
-// human-readable count, but that drifted on every PR. Read the
-// array if you want the current set.
-//
 // Wire format: the MCP SDK's StdioServerTransport uses newline-
 // delimited JSON-RPC (one JSON message per `\n`-terminated line),
 // not LSP-style Content-Length framing. Confirmed in the SDK
@@ -40,6 +35,7 @@ const EXPECTED_TOOLS = [
   "gh.issue_close",
   "gh.issue_comment",
   "gh.issue_search",
+  "gh.issue_add_sub_issue",
   "gh.label_create",
   "gh.label_list",
   "gh.label_edit",
@@ -51,6 +47,7 @@ const EXPECTED_TOOLS = [
   "gh.pr_comment",
   "gh.pr_merge",
   "gh.pr_request_reviews",
+  "gh.pr_review_thread_resolve",
   "gh.project_item_add",
   "gh.project_item_update_field",
   "gh.project_field_list",
@@ -59,6 +56,11 @@ const EXPECTED_TOOLS = [
   "gh.workflow_run_view",
   "gh.workflow_run_cancel",
   "gh.workflow_run_jobs",
+  "gh.pr_reviews_list",
+  "gh.issue_parent_get",
+  "gh.issue_sub_issues_list",
+  "gh.org_issue_types_list",
+  "gh.pr_review_threads_list",
 ];
 
 function frame(payload) {

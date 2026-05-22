@@ -36,6 +36,7 @@ query PRList(
         mergeCommit {
           oid
         }
+        reviewDecision
         labels(first: 100) {
           pageInfo {
             hasNextPage
@@ -67,6 +68,7 @@ query PRList(
             author {
               login
             }
+            submittedAt
           }
         }
         reviewThreads(first: 100) {

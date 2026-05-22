@@ -11,6 +11,7 @@
 
 import type { GraphqlClient } from "../../graphql/client.js";
 import type { ToolEntry } from "../../registry.js";
+import { registerIssueAddSubIssueTool } from "./add_sub_issue.js";
 import { registerIssueCloseTool } from "./close.js";
 import { registerIssueCommentTool } from "./comment.js";
 import { registerIssueCreateTool } from "./create.js";
@@ -34,6 +35,7 @@ export function registerIssueTools(
   registerIssueCloseTool(register, graphql);
   registerIssueCommentTool(register, graphql);
   registerIssueSearchTool(register, graphql);
+  registerIssueAddSubIssueTool(register, graphql);
   registerIssueParentGetTool(register, graphql);
   registerIssueSubIssuesListTool(register, graphql);
 }

@@ -6,8 +6,6 @@ mutation OrgIssueTypeCreate($input: CreateIssueTypeInput!) {
       color
       description
       isEnabled
-      createdAt
-      updatedAt
     }
   }
 }

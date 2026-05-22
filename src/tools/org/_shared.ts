@@ -1,7 +1,7 @@
 // src/tools/org/_shared.ts
 //
 // Helpers shared across the gh.org_* tools. The org domain covers
-// organisation-scoped operations that don't fit under issue / pr
+// organization-scoped operations that don't fit under issue / pr
 // / label / project — at v0.1 that's just GitHub's native "Issue
 // Types" (REST + GraphQL) used by the methodology's optional
 // `label-taxonomy` flow to set canonical issue categories without
@@ -83,5 +83,5 @@ export const orgLoginSchema = {
   // leading/trailing/double hyphens. Conservative pattern
   // matches the same form the API accepts.
   pattern: "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
-  description: "Organisation login (e.g. `my-org`).",
+  description: "Organization login (e.g. `my-org`).",
 } as const;

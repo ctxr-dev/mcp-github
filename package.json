@@ -36,7 +36,7 @@
     "test": "node ./scripts/run-tests.mjs unit",
     "test:integration": "node ./scripts/run-tests.mjs integration",
     "lint": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.tests.json --noEmit",
-    "prepack": "npm run build"
+    "prepare": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

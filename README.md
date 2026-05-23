@@ -60,6 +60,10 @@ live at `docs/tool-reference.md` once MCP-13 lands. At v0.1 the file is
 not yet present: tools land PR by PR, and the reference is generated
 once the surface stabilises.
 
+| Tool | Surfaced as | What it does |
+| --- | --- | --- |
+| `gh.pr_review_watch` | `gh_pr_review_watch` | Blocking, multiplexed long-poll over 1..N PRs for 1..N reviewers. Computes a per-reviewer verdict on HEAD (pending / needs-work / green) from `latestReviews` plus unresolved, non-outdated review threads authored by that reviewer, returns when any PR has a wake-worthy transition (filtered by `waitFor`), becomes `ready` (all reviewers green on HEAD, required approvals present, CI when `requireCi`), or `maxWaitSeconds` elapses. Defaults `maxWaitSeconds` to 25 to stay under the common ~60s client tool-call timeout; the agent re-invokes passing the returned `fingerprint` back as `sinceFingerprint`. |
+
 ## Develop
 
 ```sh

@@ -260,12 +260,16 @@ test("evaluatePr: COMMENTED on head, no open thread, not required -> green", () 
   assert.equal(ev.reviewers[0]?.verdict, "green");
 });
 
-test("evaluatePr: required approver that only COMMENTED stays pending (not green)", () => {
+test("evaluatePr: required approver that only COMMENTED is green but not ready (approval is a separate gate)", () => {
   const ev = evaluatePr(
     rawPr({ reviews: [review({ state: "COMMENTED" })] }),
     { reviewers: ["alice"], requiredApprovals: ["alice"], requireCi: false },
   );
-  assert.equal(ev.reviewers[0]?.verdict, "pending");
+  // The verdict reflects review feedback only: on head, no open thread -> green.
+  assert.equal(ev.reviewers[0]?.verdict, "green");
+  assert.equal(ev.reviewers[0]?.onHead, true);
+  assert.equal(ev.allOnHead, true);
+  // ready is held back by the orthogonal required-approval gate.
   assert.equal(ev.ready, false);
 });
 
@@ -908,10 +912,12 @@ test("handler: requiredApprovals defaults to the human reviewers (copilot exclud
       reviewers: Array<{ login: string; verdict: string }>;
     }>;
   };
-  // alice (human) defaults into requiredApprovals: COMMENTED is not
-  // APPROVED, so she stays pending and the PR is not ready.
+  // alice (human) defaults into requiredApprovals. COMMENTED on head
+  // with no open thread reads green (verdict is feedback-only), but
+  // not being APPROVED holds the PR back from ready via the separate
+  // required-approval gate.
   const alice = out.items[0]?.reviewers.find((r) => r.login === "alice");
-  assert.equal(alice?.verdict, "pending");
+  assert.equal(alice?.verdict, "green");
   assert.equal(out.items[0]?.ready, false);
 });
 

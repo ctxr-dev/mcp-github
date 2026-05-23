@@ -427,12 +427,13 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
       const hasOpenThread = (unresolvedByReviewer[login] ?? 0) > 0;
       if (state === "CHANGES_REQUESTED" || hasOpenThread) {
         verdict = "needs-work";
-      } else if (required.has(login) && state !== "APPROVED") {
-        // Required approver who is otherwise clean but has not
-        // formally APPROVED stays pending (a CHANGES_REQUESTED is
-        // already needs-work above, so this is the COMMENTED case).
-        verdict = "pending";
       } else {
+        // On HEAD, no open thread, no requested changes: green. The
+        // verdict reflects review FEEDBACK only. A required approver
+        // who has not yet formally APPROVED is still green here (they
+        // have no outstanding asks); the orthogonal requiredApproved
+        // gate in `ready` holds the PR until they approve, so `green`
+        // does not on its own imply `ready`.
         verdict = "green";
       }
     }

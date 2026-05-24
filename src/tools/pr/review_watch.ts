@@ -83,11 +83,15 @@ const inputSchema = {
     reviewers: {
       type: "array",
       minItems: 1,
+      maxItems: 50,
       items: { type: "string", minLength: 1 },
       description:
-        "Reviewer logins to watch. The alias `copilot` is mapped to " +
-        "`copilot-pull-request-reviewer`. A PR is `ready` only when " +
-        "every reviewer in this set is green on HEAD.",
+        "Individual reviewer logins to watch (users and bots; the alias " +
+        "`copilot` maps to `copilot-pull-request-reviewer`). NOT team " +
+        "slugs: the verdict matches a review/thread author login, so a " +
+        "team slug never matches and would stay pending forever. Watch a " +
+        "team via its member logins. A PR is `ready` only when every " +
+        "reviewer here is green on HEAD.",
     },
     requiredApprovals: {
       type: "array",
@@ -390,7 +394,9 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
   const latestByLogin = new Map<string, RawReview>();
   for (const review of latest) {
     const login = review.author?.login;
-    if (login) latestByLogin.set(login, review);
+    // Index by lowercased login: GitHub logins are case-insensitive and
+    // the configured reviewer set is canonicalised the same way.
+    if (login) latestByLogin.set(login.toLowerCase(), review);
   }
 
   // Count unresolved, non-outdated threads per authoring reviewer.
@@ -402,12 +408,13 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
     if (thread.isResolved || thread.isOutdated) continue;
     const author = thread.comments.nodes[0]?.author?.login;
     if (!author) continue;
-    unresolvedByReviewer[author] = (unresolvedByReviewer[author] ?? 0) + 1;
+    const key = author.toLowerCase();
+    unresolvedByReviewer[key] = (unresolvedByReviewer[key] ?? 0) + 1;
   }
 
-  const required = new Set(opts.requiredApprovals);
+  const required = new Set(opts.requiredApprovals.map((l) => l.toLowerCase()));
   const reviewers: ReviewerVerdict[] = opts.reviewers.map((login) => {
-    const review = latestByLogin.get(login);
+    const review = latestByLogin.get(login.toLowerCase());
     const state = review?.state ?? null;
     const latestReviewId = review?.id ?? null;
     // On head only when this reviewer has a non-DISMISSED/PENDING
@@ -424,7 +431,7 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
     if (!onHead) {
       verdict = "pending";
     } else {
-      const hasOpenThread = (unresolvedByReviewer[login] ?? 0) > 0;
+      const hasOpenThread = (unresolvedByReviewer[login.toLowerCase()] ?? 0) > 0;
       if (state === "CHANGES_REQUESTED" || hasOpenThread) {
         verdict = "needs-work";
       } else {
@@ -446,7 +453,7 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
 
   const allGreen = reviewers.every((r) => r.verdict === "green");
   const requiredApproved = reviewers
-    .filter((r) => required.has(r.login))
+    .filter((r) => required.has(r.login.toLowerCase()))
     .every((r) => r.state === "APPROVED");
   // A null rollup means "no checks configured": pass unless
   // requireCi forces a gate, in which case null fails.
@@ -487,24 +494,17 @@ function computeFingerprint(
     onHeadOid: r.onHead ? head : null,
     verdict: r.verdict,
   }));
-  const payload = JSON.stringify({ reviewers: tuples, ci });
+  // `head` is included unconditionally (not only via on-head reviewers'
+  // onHeadOid) so a push that moves HEAD always changes the fingerprint,
+  // even when every reviewer is still pending.
+  const payload = JSON.stringify({ reviewers: tuples, head, ci });
   return createHash("sha1").update(payload).digest("hex").slice(0, 16);
 }
 
-// Whether the (combined) fingerprint moved away from the caller's
-// `sinceFingerprint` baseline. A missing baseline (first call) is
-// NOT a transition: the blocking long-poll waits for a real change
-// (or `ready` / timeout) rather than returning on the first
-// snapshot. Callers wanting an immediate snapshot pass
-// maxWaitSeconds: 0.
-function changedVsSince(combined: string, opts: WatchOptions): boolean {
-  return opts.sinceFingerprint !== null && combined !== opts.sinceFingerprint;
-}
-
 // Whether this PR satisfies the `waitFor` filter THIS cycle (an
-// absolute per-PR predicate; the fingerprint delta is checked
-// separately by changedVsSince). `any` always satisfies, so any
-// combined change wakes; the others gate on a per-PR state.
+// absolute per-PR predicate; the per-PR fingerprint delta is checked
+// separately by prChanged). `any` always satisfies, so any per-PR
+// change wakes; the others gate on a per-PR state.
 function waitForHolds(evaluation: PrEvaluation, opts: WatchOptions): boolean {
   switch (opts.waitFor) {
     case "any":
@@ -522,31 +522,35 @@ function waitForHolds(evaluation: PrEvaluation, opts: WatchOptions): boolean {
   }
 }
 
-// A PR is a wake source when it is `ready`, or when the combined
-// fingerprint changed AND its `waitFor` filter holds.
+// A PR is a wake source when it is `ready`, or when THIS PR's own
+// fingerprint changed away from the caller's baseline AND its `waitFor`
+// filter holds. Using the per-PR delta (not the batch delta) means a
+// benign change to a sibling PR no longer spuriously wakes this one.
 function prWakes(
   evaluation: PrEvaluation,
-  combined: string,
+  changed: boolean,
   opts: WatchOptions,
 ): boolean {
   if (evaluation.ready) return true;
-  return changedVsSince(combined, opts) && waitForHolds(evaluation, opts);
+  return changed && waitForHolds(evaluation, opts);
 }
 
 // Human-readable reason a PR woke the multiplex, for the `changed`
 // array. Keeps the caller from re-deriving why each PR is listed.
 function wakeReason(
   evaluation: PrEvaluation,
-  combined: string,
+  changed: boolean,
   opts: WatchOptions,
 ): string | null {
   if (evaluation.ready) return "ready";
-  if (changedVsSince(combined, opts) && waitForHolds(evaluation, opts)) {
+  if (changed && waitForHolds(evaluation, opts)) {
     switch (opts.waitFor) {
       case "any":
         return "transition";
       case "smart":
-        return evaluation.actionable ? "actionable" : "ready-transition";
+        // Reachable only when not ready (ready returned above), so the
+        // waitFor:smart filter held via `actionable`.
+        return "actionable";
       case "all":
         return "all-on-head";
       case "quorum":
@@ -569,6 +573,9 @@ export async function watchPrs(
 ): Promise<Output> {
   const { graphql, sleep, now, signal } = deps;
   const deadline = now() + opts.maxWaitSeconds * 1000;
+  // Decode the caller's baseline once; every wake/changed decision is a
+  // per-PR delta against it.
+  const priorMap = decodeFingerprint(opts.sinceFingerprint);
 
   // Last good snapshot, so the abort / rate-limit paths can report
   // what we last saw rather than an empty payload. Empty before the
@@ -578,7 +585,7 @@ export async function watchPrs(
 
   while (true) {
     if (signal?.aborted) {
-      return buildOutput(lastItems, lastEvaluations, opts, true);
+      return buildOutput(lastItems, lastEvaluations, opts, priorMap, true);
     }
 
     try {
@@ -590,36 +597,38 @@ export async function watchPrs(
         err instanceof RateLimitExhaustedError ||
         err instanceof AbuseDetectionError
       ) {
-        return buildRateLimited(lastItems, lastEvaluations, opts, err);
+        return buildRateLimited(lastItems, lastEvaluations, opts, priorMap, err);
       }
       throw err;
     }
 
-    // Wake if any PR is ready, or the combined fingerprint changed
-    // away from the caller's baseline and some PR satisfies the
-    // waitFor filter.
-    const combined = combinedFingerprint(lastItems, lastEvaluations);
-    const woke = lastEvaluations.some(
-      (ev) => ev !== null && prWakes(ev, combined, opts),
-    );
-    if (woke) return buildOutput(lastItems, lastEvaluations, opts, false);
+    // Wake if any PR is ready, or THIS PR's own fingerprint changed away
+    // from the caller's baseline and it satisfies the waitFor filter.
+    const woke = lastEvaluations.some((ev, i) => {
+      if (ev === null) return false;
+      const item = lastItems[i];
+      if (item === undefined) return false;
+      const changed = prChanged(prKey(item), prComponent(item, ev), priorMap);
+      return prWakes(ev, changed, opts);
+    });
+    if (woke) return buildOutput(lastItems, lastEvaluations, opts, priorMap, false);
 
     // Out of budget: a single snapshot (maxWaitSeconds:0) lands here
     // immediately, and a longer block lands here once the deadline
     // passes. Both return timedOut so the caller re-invokes.
     if (now() >= deadline) {
-      return buildOutput(lastItems, lastEvaluations, opts, true);
+      return buildOutput(lastItems, lastEvaluations, opts, priorMap, true);
     }
 
     if (signal?.aborted) {
-      return buildOutput(lastItems, lastEvaluations, opts, true);
+      return buildOutput(lastItems, lastEvaluations, opts, priorMap, true);
     }
     await sleep(opts.pollSeconds * 1000);
     // Re-check the deadline after sleeping so a sleep that consumed
     // the remaining budget doesn't kick off another full cycle past
     // the documented ceiling.
     if (now() >= deadline) {
-      return buildOutput(lastItems, lastEvaluations, opts, true);
+      return buildOutput(lastItems, lastEvaluations, opts, priorMap, true);
     }
   }
 }
@@ -722,37 +731,80 @@ function emptyItem(pr: PrInput, error: string): OutputItem {
   };
 }
 
-// Combine each PR's per-PR fingerprint into one stable digest for
-// the whole watch set. Failed PRs (null evaluation) contribute their
-// repo#number so the multiplex fingerprint still changes if a
-// previously-failing PR starts resolving (or vice versa).
-function combinedFingerprint(
+// One PR's component within the encoded watch token: its per-PR
+// fingerprint, or an error marker so a PR flipping between error and ok
+// still registers as a change.
+function prComponent(item: OutputItem, ev: PrEvaluation | null): string {
+  return ev ? ev.fingerprint : `error:${item.error ?? "unknown"}`;
+}
+
+function prKey(item: { repo: string; number: number }): string {
+  return `${item.repo}#${item.number}`;
+}
+
+// The returned `fingerprint` is an opaque token encoding the per-PR
+// component map (base64 of a {`repo#number`: component} JSON object),
+// so the caller can pass it back and the next call detects WHICH PR
+// changed, not merely that the batch changed.
+function encodeFingerprint(
   items: OutputItem[],
   evaluations: Array<PrEvaluation | null>,
 ): string {
-  const parts = items.map((item, i) => {
-    const ev = evaluations[i];
-    const fp = ev ? ev.fingerprint : `error:${item.error ?? "unknown"}`;
-    return `${item.repo}#${item.number}:${fp}`;
+  const map: Record<string, string> = {};
+  items.forEach((item, i) => {
+    map[prKey(item)] = prComponent(item, evaluations[i] ?? null);
   });
-  return createHash("sha1").update(parts.join("|")).digest("hex").slice(0, 16);
+  return Buffer.from(JSON.stringify(map), "utf8").toString("base64");
+}
+
+// Decode a prior token into its per-PR component map. A missing or
+// unparseable token yields null ("no baseline": only `ready` wakes,
+// never a transition), so a first call or a corrupt token never
+// produces spurious transition wakes.
+function decodeFingerprint(
+  token: string | null,
+): Record<string, string> | null {
+  if (token === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(
+      Buffer.from(token, "base64").toString("utf8"),
+    );
+    return parsed !== null && typeof parsed === "object"
+      ? (parsed as Record<string, string>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+// Whether THIS PR's component moved away from the caller's baseline. A
+// missing baseline (first call / undecodable token) is never a
+// transition.
+function prChanged(
+  key: string,
+  component: string,
+  priorMap: Record<string, string> | null,
+): boolean {
+  return priorMap !== null && priorMap[key] !== component;
 }
 
 function buildOutput(
   items: OutputItem[],
   evaluations: Array<PrEvaluation | null>,
   opts: WatchOptions,
+  priorMap: Record<string, string> | null,
   timedOut: boolean,
 ): Output {
-  const fingerprint = combinedFingerprint(items, evaluations);
+  const fingerprint = encodeFingerprint(items, evaluations);
   const changed: Output["changed"] = [];
   for (let i = 0; i < items.length; i += 1) {
     const ev = evaluations[i];
-    if (!ev) continue;
-    const reason = wakeReason(ev, fingerprint, opts);
+    const item = items[i];
+    if (!ev || !item) continue;
+    const changedSince = prChanged(prKey(item), prComponent(item, ev), priorMap);
+    const reason = wakeReason(ev, changedSince, opts);
     if (reason !== null) {
-      const item = items[i];
-      if (item) changed.push({ repo: item.repo, number: item.number, reason });
+      changed.push({ repo: item.repo, number: item.number, reason });
     }
   }
   return {
@@ -767,9 +819,10 @@ function buildRateLimited(
   items: OutputItem[],
   evaluations: Array<PrEvaluation | null>,
   opts: WatchOptions,
+  priorMap: Record<string, string> | null,
   err: RateLimitExhaustedError | AbuseDetectionError,
 ): Output {
-  const base = buildOutput(items, evaluations, opts, true);
+  const base = buildOutput(items, evaluations, opts, priorMap, true);
   // RateLimitExhaustedError carries `resetAt` (epoch seconds);
   // AbuseDetectionError carries `retryAfterSeconds`. Surface a
   // forward-looking "seconds from now" figure for both so the caller
@@ -812,6 +865,18 @@ export function registerPRReviewWatchTool(
         parseRepoSlug(pr.repo, "gh.pr_review_watch input");
       }
       const opts = normaliseOptions(args);
+      // requiredApprovals that are not in the reviewer set would be
+      // silently ignored (the verdict loop only covers `reviewers`),
+      // letting `ready` go true without that approver. Reject it at the
+      // boundary instead. Both sets are alias-mapped + lowercased.
+      const reviewerSet = new Set(opts.reviewers);
+      for (const login of opts.requiredApprovals) {
+        if (!reviewerSet.has(login)) {
+          throw new Error(
+            `mcp-github: gh.pr_review_watch input: requiredApprovals must be a subset of reviewers ('${login}' is not in reviewers)`,
+          );
+        }
+      }
       const deps: WatchDeps = {
         graphql,
         sleep: (ms) =>
@@ -852,7 +917,11 @@ function normaliseOptions(args: Input): WatchOptions {
 }
 
 function mapReviewerAlias(login: string): string {
-  return login === COPILOT_ALIAS ? COPILOT_LOGIN : login;
+  // Canonicalise to lowercase (GitHub logins are case-insensitive) so
+  // dedup, the requiredApprovals subset check, and verdict matching all
+  // agree regardless of the case the caller passed.
+  const lower = login.toLowerCase();
+  return lower === COPILOT_ALIAS ? COPILOT_LOGIN : lower;
 }
 
 function dedupe(values: string[]): string[] {

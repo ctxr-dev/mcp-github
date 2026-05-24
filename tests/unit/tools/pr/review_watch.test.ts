@@ -377,6 +377,26 @@ function baseOpts(overrides: Partial<Parameters<typeof watchPrs>[0]> = {}) {
   };
 }
 
+// A real baseline token: snapshot the all-pending state (maxWaitSeconds:0)
+// and return the encoded fingerprint a caller would pass back as
+// `sinceFingerprint`. The token now encodes a per-PR component map, so a
+// raw evaluatePr().fingerprint is no longer a valid baseline.
+async function pendingToken(
+  reviewers: string[],
+  prs: Array<{ repo: string; number: number }> = ONE_PR,
+): Promise<string> {
+  const { graphql } = stubGraphqlClient({
+    "pr/review_watch": () => ({
+      repository: { pullRequest: rawPr({ reviews: [] }) },
+    }),
+  });
+  const out = await watchPrs(
+    baseOpts({ reviewers, prs, maxWaitSeconds: 0 }),
+    makeDeps(graphql),
+  );
+  return out.fingerprint;
+}
+
 test("watchPrs: maxWaitSeconds 0 takes a single snapshot and returns timedOut", async () => {
   // A not-yet-ready snapshot: maxWaitSeconds:0 polls exactly once
   // and returns timedOut without blocking (the caller re-invokes
@@ -524,9 +544,8 @@ test("watchPrs: transition wake does NOT re-fire on unchanged state (times out)"
 // ---------------------------------------------------------------
 
 test("watchPrs: waitFor smart wakes on actionable but not on a benign change", async () => {
-  // Baseline: pending.
-  const optsEval = { reviewers: ["alice"], requiredApprovals: [], requireCi: false };
-  const baseFp = evaluatePr(rawPr({ reviews: [] }), optsEval).fingerprint;
+  // Baseline: all pending (a real token the caller would pass back).
+  const baseFp = await pendingToken(["alice"]);
 
   // needs-work is actionable -> smart wakes.
   const { graphql } = stubGraphqlClient({
@@ -550,12 +569,7 @@ test("watchPrs: waitFor smart wakes on actionable but not on a benign change", a
 test("watchPrs: waitFor smart does NOT wake on a non-actionable, non-ready change", async () => {
   // Baseline pending for a two-reviewer set; change makes only ONE
   // reviewer green (still not ready, not actionable) -> smart holds.
-  const optsEval = {
-    reviewers: ["alice", "bob"],
-    requiredApprovals: [],
-    requireCi: false,
-  };
-  const baseFp = evaluatePr(rawPr({ reviews: [] }), optsEval).fingerprint;
+  const baseFp = await pendingToken(["alice", "bob"]);
 
   let cycles = 0;
   const { graphql } = stubGraphqlClient({
@@ -587,12 +601,7 @@ test("watchPrs: waitFor smart does NOT wake on a non-actionable, non-ready chang
 });
 
 test("watchPrs: waitFor all wakes only once every reviewer is on head", async () => {
-  const optsEval = {
-    reviewers: ["alice", "bob"],
-    requiredApprovals: [],
-    requireCi: false,
-  };
-  const baseFp = evaluatePr(rawPr({ reviews: [] }), optsEval).fingerprint;
+  const baseFp = await pendingToken(["alice", "bob"]);
 
   // Both reviewers on head but requesting changes: allOnHead is
   // true (neither is pending) while the PR is NOT ready, so the
@@ -626,12 +635,7 @@ test("watchPrs: waitFor all wakes only once every reviewer is on head", async ()
 });
 
 test("watchPrs: waitFor quorum wakes when enough reviewers are non-pending", async () => {
-  const optsEval = {
-    reviewers: ["alice", "bob", "carol"],
-    requiredApprovals: [],
-    requireCi: false,
-  };
-  const baseFp = evaluatePr(rawPr({ reviews: [] }), optsEval).fingerprint;
+  const baseFp = await pendingToken(["alice", "bob", "carol"]);
 
   // alice + bob are on head (requesting changes -> non-pending);
   // carol has not reviewed (pending). Two non-pending reviewers hit
@@ -666,12 +670,7 @@ test("watchPrs: waitFor quorum wakes when enough reviewers are non-pending", asy
 });
 
 test("watchPrs: waitFor quorum holds below the threshold", async () => {
-  const optsEval = {
-    reviewers: ["alice", "bob", "carol"],
-    requiredApprovals: [],
-    requireCi: false,
-  };
-  const baseFp = evaluatePr(rawPr({ reviews: [] }), optsEval).fingerprint;
+  const baseFp = await pendingToken(["alice", "bob", "carol"]);
 
   let cycles = 0;
   const { graphql } = stubGraphqlClient({
@@ -740,6 +739,40 @@ test("watchPrs: multiplex returns the changed PR + reason among several", async 
   ]);
   assert.equal(out.items.find((i) => i.number === 8)?.ready, true);
   assert.equal(out.items.find((i) => i.number === 7)?.ready, false);
+});
+
+test("watchPrs: changed lists only the PR that actually transitioned (per-PR delta)", async () => {
+  const prs = [
+    { repo: "owner/repo", number: 7 },
+    { repo: "owner/repo", number: 8 },
+  ];
+  // Baseline: both PRs pending.
+  const baseFp = await pendingToken(["alice"], prs);
+  // Only #7 transitions (alice requests changes); #8 stays pending. A
+  // benign-or-no change to #8 must NOT make it appear in `changed`.
+  const { graphql } = stubGraphqlClient({
+    "pr/review_watch": (vars: Record<string, unknown>) => {
+      if (vars.number === 7) {
+        return {
+          repository: {
+            pullRequest: rawPr({
+              reviews: [review({ state: "CHANGES_REQUESTED" })],
+              reviewDecision: "CHANGES_REQUESTED",
+            }),
+          },
+        };
+      }
+      return { repository: { pullRequest: rawPr({ reviews: [] }) } };
+    },
+  });
+  const out = await watchPrs(
+    baseOpts({ prs, sinceFingerprint: baseFp, waitFor: "any", maxWaitSeconds: 25 }),
+    makeDeps(graphql),
+  );
+  assert.equal(out.timedOut, false);
+  assert.deepEqual(out.changed, [
+    { repo: "owner/repo", number: 7, reason: "transition" },
+  ]);
 });
 
 test("watchPrs: abort signal breaks the loop and returns timedOut", async () => {
@@ -1010,5 +1043,19 @@ test("handler: rejects an invalid repo slug at the input boundary", async () => 
       reviewers: ["alice"],
     }),
     /gh\.pr_review_watch input/,
+  );
+});
+
+test("handler: rejects requiredApprovals that is not a subset of reviewers", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRReviewWatchTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      prs: [{ repo: "owner/repo", number: 7 }],
+      reviewers: ["alice"],
+      requiredApprovals: ["dave"],
+    }),
+    /requiredApprovals must be a subset of reviewers/,
   );
 });

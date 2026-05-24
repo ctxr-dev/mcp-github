@@ -3,7 +3,7 @@ query PRReviewWatch($owner: String!, $name: String!, $number: Int!) {
     pullRequest(number: $number) {
       headRefOid
       reviewDecision
-      latestReviews(first: 30) {
+      latestReviews(first: 100) {
         nodes {
           id
           author {

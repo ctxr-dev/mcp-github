@@ -1,0 +1,46 @@
+query PRReviewWatch($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      headRefOid
+      reviewDecision
+      latestReviews(first: 100) {
+        nodes {
+          id
+          author {
+            login
+          }
+          state
+          commit {
+            oid
+          }
+        }
+      }
+      reviewThreads(first: 100) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          isResolved
+          isOutdated
+          comments(first: 1) {
+            nodes {
+              author {
+                login
+              }
+            }
+          }
+        }
+      }
+      commits(last: 1) {
+        nodes {
+          commit {
+            statusCheckRollup {
+              state
+            }
+          }
+        }
+      }
+    }
+  }
+}

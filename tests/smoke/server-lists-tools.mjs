@@ -63,6 +63,7 @@ const EXPECTED_TOOLS = [
   "gh.issue_parent_get",
   "gh.issue_sub_issues_list",
   "gh.pr_review_threads_list",
+  "gh.pr_review_watch",
 ];
 
 function frame(payload) {

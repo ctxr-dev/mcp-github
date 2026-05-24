@@ -1089,6 +1089,25 @@ test("handler: rejects quorum greater than the reviewer count", async () => {
   );
 });
 
+test("watchPrs: a PR that transitions OK -> fetch error wakes with reason error", async () => {
+  // Baseline: #7 fetches OK (pending).
+  const baseFp = await pendingToken(["alice"]);
+  // Now #7 fails to fetch -> its error component differs from the baseline,
+  // so it wakes with reason "error" rather than waiting for timeout.
+  const { graphql } = stubGraphqlClient({
+    "pr/review_watch": () => ({ repository: null }),
+  });
+  const out = await watchPrs(
+    baseOpts({ sinceFingerprint: baseFp, maxWaitSeconds: 25 }),
+    makeDeps(graphql),
+  );
+  assert.equal(out.timedOut, false);
+  assert.equal(out.items[0]?.error !== undefined, true);
+  assert.deepEqual(out.changed, [
+    { repo: "owner/repo", number: 7, reason: "error" },
+  ]);
+});
+
 test("evaluatePr: threadsTruncated forces ready false even when all green", () => {
   const ev = evaluatePr(
     rawPr({ reviews: [review({ state: "APPROVED" })], threadsHasNextPage: true }),

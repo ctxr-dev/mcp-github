@@ -613,10 +613,13 @@ export async function watchPrs(
     // Wake if any PR is ready, or THIS PR's own fingerprint changed away
     // from the caller's baseline and it satisfies the waitFor filter.
     const woke = lastEvaluations.some((ev, i) => {
-      if (ev === null) return false;
       const item = lastItems[i];
       if (item === undefined) return false;
       const changed = prChanged(prKey(item), prComponent(item, ev), priorMap);
+      // An error item has no evaluation, but an OK<->error transition (its
+      // component changed) is still wake-worthy, so the agent learns a
+      // watched PR started or stopped failing instead of waiting for timeout.
+      if (ev === null) return changed;
       return prWakes(ev, changed, opts);
     });
     if (woke) return buildOutput(lastItems, lastEvaluations, opts, priorMap, false);
@@ -813,11 +816,18 @@ function buildOutput(
   const fingerprint = encodeFingerprint(items, evaluations);
   const changed: Output["changed"] = [];
   for (let i = 0; i < items.length; i += 1) {
-    const ev = evaluations[i];
+    const ev = evaluations[i] ?? null;
     const item = items[i];
-    if (!ev || !item) continue;
+    if (!item) continue;
     const changedSince = prChanged(prKey(item), prComponent(item, ev), priorMap);
-    const reason = wakeReason(ev, changedSince, opts);
+    // Error items (null evaluation) surface with reason "error" when their
+    // component changed; otherwise use the normal per-PR wake reason.
+    const reason =
+      ev === null
+        ? changedSince
+          ? "error"
+          : null
+        : wakeReason(ev, changedSince, opts);
     if (reason !== null) {
       changed.push({ repo: item.repo, number: item.number, reason });
     }

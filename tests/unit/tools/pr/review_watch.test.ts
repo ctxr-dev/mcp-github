@@ -349,6 +349,27 @@ test("evaluatePr: fingerprint changes when a verdict changes", () => {
   assert.notEqual(pending.fingerprint, green.fingerprint);
 });
 
+test("evaluatePr: fingerprint changes when a reviewer's unresolved count changes (verdict steady)", () => {
+  const opts = { reviewers: ["alice"], requiredApprovals: [], requireCi: false };
+  // Both needs-work (open thread by alice), but one vs two open threads: the
+  // verdict is unchanged, yet the observable output differs, so the
+  // fingerprint must change (round-4 completeness fix).
+  const one = evaluatePr(
+    rawPr({ reviews: [review({ state: "COMMENTED" })], threads: [thread("alice")] }),
+    opts,
+  );
+  const two = evaluatePr(
+    rawPr({
+      reviews: [review({ state: "COMMENTED" })],
+      threads: [thread("alice", { id: "RT_1" }), thread("alice", { id: "RT_2" })],
+    }),
+    opts,
+  );
+  assert.equal(one.reviewers[0]?.verdict, "needs-work");
+  assert.equal(two.reviewers[0]?.verdict, "needs-work");
+  assert.notEqual(one.fingerprint, two.fingerprint);
+});
+
 test("evaluatePr: fingerprint changes when the CI state changes", () => {
   const opts = { reviewers: ["alice"], requiredApprovals: [], requireCi: false };
   const a = evaluatePr(rawPr({ reviews: [review()], rollup: "SUCCESS" }), opts);

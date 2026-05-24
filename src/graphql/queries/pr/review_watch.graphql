@@ -13,7 +13,6 @@ query PRReviewWatch($owner: String!, $name: String!, $number: Int!) {
           commit {
             oid
           }
-          submittedAt
         }
       }
       reviewThreads(first: 100) {
@@ -22,17 +21,13 @@ query PRReviewWatch($owner: String!, $name: String!, $number: Int!) {
           endCursor
         }
         nodes {
-          id
           isResolved
           isOutdated
-          path
-          line
           comments(first: 1) {
             nodes {
               author {
                 login
               }
-              body
             }
           }
         }

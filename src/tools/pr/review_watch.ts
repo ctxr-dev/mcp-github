@@ -309,17 +309,13 @@ interface RawReview {
   author: { login: string } | null;
   state: ReviewState;
   commit: { oid: string } | null;
-  submittedAt: string | null;
 }
 
 interface RawThread {
-  id: string;
   isResolved: boolean;
   isOutdated: boolean;
-  path: string | null;
-  line: number | null;
   comments: {
-    nodes: Array<{ author: { login: string } | null; body: string }>;
+    nodes: Array<{ author: { login: string } | null }>;
   };
 }
 
@@ -468,7 +464,14 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
   const threadsTruncated = rawPr.reviewThreads.pageInfo.hasNextPage;
   const ready = allGreen && requiredApproved && ciReady && !threadsTruncated;
 
-  const fingerprint = computeFingerprint(reviewers, head, ci);
+  const fingerprint = computeFingerprint(
+    reviewers,
+    head,
+    ci,
+    unresolvedByReviewer,
+    threadsTruncated,
+    rawPr.reviewDecision,
+  );
 
   return {
     head,
@@ -484,16 +487,18 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
   };
 }
 
-// Stable short hash over the sorted-by-login reviewer tuples plus
-// the CI state, so an unchanged review landscape produces an
-// unchanged fingerprint and the transition wake does not re-fire.
-// The tuple shape is fixed (login, latestReviewId, onHeadOid,
-// verdict) so the sibling methodology gh-CLI script can mirror it
-// and produce identical fingerprints for parity.
+// Stable short hash over every field that drives the per-PR OUTPUT, so any
+// observable change (verdict, latest-review id, head, ci, per-reviewer
+// unresolved count, threadsTruncated, reviewDecision) moves the fingerprint
+// and a waitFor:any transition wakes. The shape is fixed so the sibling
+// methodology gh-CLI script can mirror it.
 function computeFingerprint(
   reviewers: ReviewerVerdict[],
   head: string | null,
   ci: RollupState | null,
+  unresolvedByReviewer: Record<string, number>,
+  threadsTruncated: boolean,
+  reviewDecision: RawPR["reviewDecision"],
 ): string {
   const sorted = [...reviewers].sort((a, b) => a.login.localeCompare(b.login));
   const tuples = sorted.map((r) => ({
@@ -501,11 +506,18 @@ function computeFingerprint(
     latestReviewId: r.latestReviewId,
     onHeadOid: r.onHead ? head : null,
     verdict: r.verdict,
+    unresolved: unresolvedByReviewer[r.login.toLowerCase()] ?? 0,
   }));
   // `head` is included unconditionally (not only via on-head reviewers'
   // onHeadOid) so a push that moves HEAD always changes the fingerprint,
   // even when every reviewer is still pending.
-  const payload = JSON.stringify({ reviewers: tuples, head, ci });
+  const payload = JSON.stringify({
+    reviewers: tuples,
+    head,
+    ci,
+    threadsTruncated,
+    reviewDecision,
+  });
   return createHash("sha1").update(payload).digest("hex").slice(0, 16);
 }
 

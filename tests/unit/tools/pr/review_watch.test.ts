@@ -1059,3 +1059,42 @@ test("handler: rejects requiredApprovals that is not a subset of reviewers", asy
     /requiredApprovals must be a subset of reviewers/,
   );
 });
+
+test("handler: rejects a bot in requiredApprovals (never reaches APPROVED)", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRReviewWatchTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      prs: [{ repo: "owner/repo", number: 7 }],
+      reviewers: ["copilot", "alice"],
+      requiredApprovals: ["copilot"],
+    }),
+    /requiredApprovals cannot include/,
+  );
+});
+
+test("handler: rejects quorum greater than the reviewer count", async () => {
+  const { graphql } = stubGraphqlClient({});
+  const reg = captureRegistration();
+  registerPRReviewWatchTool(reg.register, graphql);
+  await assert.rejects(
+    reg.entry.handler({
+      prs: [{ repo: "owner/repo", number: 7 }],
+      reviewers: ["alice", "bob"],
+      waitFor: "quorum",
+      quorum: 3,
+    }),
+    /quorum \(3\) cannot exceed/,
+  );
+});
+
+test("evaluatePr: threadsTruncated forces ready false even when all green", () => {
+  const ev = evaluatePr(
+    rawPr({ reviews: [review({ state: "APPROVED" })], threadsHasNextPage: true }),
+    { reviewers: ["alice"], requiredApprovals: ["alice"], requireCi: false },
+  );
+  assert.equal(ev.reviewers[0]?.verdict, "green");
+  assert.equal(ev.threadsTruncated, true);
+  assert.equal(ev.ready, false);
+});

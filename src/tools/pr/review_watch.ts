@@ -75,10 +75,13 @@ const inputSchema = {
     prs: {
       type: "array",
       minItems: 1,
+      maxItems: 20,
       items: prItemSchema,
       description:
-        "PRs to watch. The tool queries each one per poll cycle and " +
-        "wakes when ANY of them satisfies the wake condition.",
+        "PRs to watch (max 20). Each poll cycle issues one GraphQL " +
+        "request per PR in parallel, so the cap keeps a cycle's burst " +
+        "well within GitHub's rate limits. The tool wakes when ANY of " +
+        "them satisfies the wake condition.",
     },
     reviewers: {
       type: "array",
@@ -95,6 +98,7 @@ const inputSchema = {
     },
     requiredApprovals: {
       type: "array",
+      maxItems: 50,
       items: { type: "string", minLength: 1 },
       description:
         "Reviewers who must additionally be APPROVED (not merely " +
@@ -458,7 +462,11 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
   // A null rollup means "no checks configured": pass unless
   // requireCi forces a gate, in which case null fails.
   const ciReady = opts.requireCi ? ci === "SUCCESS" : true;
-  const ready = allGreen && requiredApproved && ciReady;
+  // Truncated threads mean only the first page was evaluated; a reviewer's
+  // unresolved thread could be unseen, so never declare ready on partial
+  // data (pessimistic: keep the caller looping rather than false-exiting).
+  const threadsTruncated = rawPr.reviewThreads.pageInfo.hasNextPage;
+  const ready = allGreen && requiredApproved && ciReady && !threadsTruncated;
 
   const fingerprint = computeFingerprint(reviewers, head, ci);
 
@@ -471,7 +479,7 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
     ci,
     reviewDecision: rawPr.reviewDecision,
     unresolvedByReviewer,
-    threadsTruncated: rawPr.reviewThreads.pageInfo.hasNextPage,
+    threadsTruncated,
     fingerprint,
   };
 }
@@ -597,7 +605,7 @@ export async function watchPrs(
         err instanceof RateLimitExhaustedError ||
         err instanceof AbuseDetectionError
       ) {
-        return buildRateLimited(lastItems, lastEvaluations, opts, priorMap, err);
+        return buildRateLimited(lastItems, lastEvaluations, opts, priorMap, err, now());
       }
       throw err;
     }
@@ -735,7 +743,14 @@ function emptyItem(pr: PrInput, error: string): OutputItem {
 // fingerprint, or an error marker so a PR flipping between error and ok
 // still registers as a change.
 function prComponent(item: OutputItem, ev: PrEvaluation | null): string {
-  return ev ? ev.fingerprint : `error:${item.error ?? "unknown"}`;
+  if (ev) return ev.fingerprint;
+  // Hash the error so the opaque token stays compact and never carries a
+  // verbose upstream error string; the full message lives in items[*].error.
+  const digest = createHash("sha1")
+    .update(item.error ?? "unknown")
+    .digest("hex")
+    .slice(0, 8);
+  return `error:${digest}`;
 }
 
 function prKey(item: { repo: string; number: number }): string {
@@ -821,16 +836,18 @@ function buildRateLimited(
   opts: WatchOptions,
   priorMap: Record<string, string> | null,
   err: RateLimitExhaustedError | AbuseDetectionError,
+  nowMs: number,
 ): Output {
   const base = buildOutput(items, evaluations, opts, priorMap, true);
   // RateLimitExhaustedError carries `resetAt` (epoch seconds);
   // AbuseDetectionError carries `retryAfterSeconds`. Surface a
   // forward-looking "seconds from now" figure for both so the caller
-  // can back off uniformly.
+  // can back off uniformly. Use the injected clock (not Date.now) so the
+  // engine stays deterministic under test.
   const retryAfter =
     err instanceof AbuseDetectionError
       ? err.retryAfterSeconds
-      : Math.max(0, Math.round(err.resetAt - Date.now() / 1000));
+      : Math.max(0, Math.round(err.resetAt - nowMs / 1000));
   return { ...base, rateLimited: true, retryAfter };
 }
 
@@ -876,6 +893,20 @@ export function registerPRReviewWatchTool(
             `mcp-github: gh.pr_review_watch input: requiredApprovals must be a subset of reviewers ('${login}' is not in reviewers)`,
           );
         }
+      }
+      // A bot can never reach APPROVED, so requiring its approval would make
+      // `ready` unreachable. Reject the known Copilot bot explicitly.
+      if (opts.requiredApprovals.includes(COPILOT_LOGIN)) {
+        throw new Error(
+          `mcp-github: gh.pr_review_watch input: requiredApprovals cannot include '${COPILOT_LOGIN}' (a bot has no APPROVED state, so ready would be unreachable)`,
+        );
+      }
+      // A quorum larger than the reviewer set can never be met (only `ready`
+      // would ever wake), which is surprising. Fail fast.
+      if (opts.waitFor === "quorum" && opts.quorum > opts.reviewers.length) {
+        throw new Error(
+          `mcp-github: gh.pr_review_watch input: quorum (${opts.quorum}) cannot exceed the reviewer count (${opts.reviewers.length})`,
+        );
       }
       const deps: WatchDeps = {
         graphql,

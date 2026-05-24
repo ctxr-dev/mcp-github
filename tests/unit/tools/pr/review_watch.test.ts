@@ -1112,6 +1112,34 @@ test("handler: rejects quorum greater than the reviewer count", async () => {
   );
 });
 
+test("watchPrs: sleep is clamped to the remaining budget (never overshoots maxWaitSeconds)", async () => {
+  const sleeps: number[] = [];
+  const { graphql } = stubGraphqlClient({
+    "pr/review_watch": () => ({
+      repository: { pullRequest: rawPr({ reviews: [] }) },
+    }),
+  });
+  // pollSeconds (120s) is far larger than maxWaitSeconds (25s); each sleep
+  // must be clamped to the remaining budget, not 120s.
+  let t = 0;
+  const deps = {
+    graphql,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+      t += ms;
+    },
+    now: () => t,
+  };
+  await watchPrs(
+    baseOpts({ pollSeconds: 120, maxWaitSeconds: 25 }),
+    deps,
+  );
+  assert.ok(
+    sleeps.every((ms) => ms <= 25_000),
+    `a sleep exceeded the budget: ${sleeps.join(", ")}`,
+  );
+});
+
 test("watchPrs: a PR that transitions OK -> fetch error wakes with reason error", async () => {
   // Baseline: #7 fetches OK (pending).
   const baseFp = await pendingToken(["alice"]);

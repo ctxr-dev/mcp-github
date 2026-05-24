@@ -657,7 +657,11 @@ export async function watchPrs(
     if (signal?.aborted) {
       return buildOutput(lastItems, lastEvaluations, opts, priorMap, true);
     }
-    await sleep(opts.pollSeconds * 1000);
+    // Sleep only as long as the remaining budget allows, so a pollSeconds
+    // larger than the remaining maxWaitSeconds never blocks past the ceiling
+    // (or the common MCP client tool-call timeout).
+    const remainingMs = deadline - now();
+    await sleep(Math.min(opts.pollSeconds * 1000, Math.max(0, remainingMs)));
     // Re-check the deadline after sleeping so a sleep that consumed
     // the remaining budget doesn't kick off another full cycle past
     // the documented ceiling.
@@ -810,9 +814,16 @@ function decodeFingerprint(
     const parsed: unknown = JSON.parse(
       Buffer.from(token, "base64").toString("utf8"),
     );
-    return parsed !== null && typeof parsed === "object"
-      ? (parsed as Record<string, string>)
-      : null;
+    // Must be a plain object whose values are ALL strings. A malformed but
+    // JSON-parseable token (an array, or values that are not strings) is
+    // treated as no baseline, so a corrupt token never produces a spurious
+    // transition wake.
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (!entries.every(([, value]) => typeof value === "string")) return null;
+    return Object.fromEntries(entries) as Record<string, string>;
   } catch {
     return null;
   }

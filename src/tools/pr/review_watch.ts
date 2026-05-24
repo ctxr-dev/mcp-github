@@ -129,10 +129,12 @@ const inputSchema = {
     },
     sinceFingerprint: {
       type: "string",
+      minLength: 1,
       description:
         "The `fingerprint` from the previous call. The tool wakes on a " +
         "`waitFor`-filtered transition away from this value. Omit on " +
-        "the first call.",
+        "the first call (an empty string is rejected so a caller cannot " +
+        "accidentally disable transition wakes).",
     },
     pollSeconds: {
       type: "integer",
@@ -890,7 +892,7 @@ function buildRateLimited(
   // engine stays deterministic under test.
   const retryAfter =
     err instanceof AbuseDetectionError
-      ? err.retryAfterSeconds
+      ? Math.max(0, Math.round(err.retryAfterSeconds))
       : Math.max(0, Math.round(err.resetAt - nowMs / 1000));
   return { ...base, rateLimited: true, retryAfter };
 }
@@ -979,7 +981,7 @@ function normaliseOptions(args: Input): WatchOptions {
       ? dedupe(args.requiredApprovals.map(mapReviewerAlias))
       : reviewers.filter((login) => !BOT_LOGINS.has(login));
   return {
-    prs: args.prs,
+    prs: dedupePrs(args.prs),
     reviewers,
     requiredApprovals,
     waitFor: args.waitFor ?? "any",
@@ -1001,4 +1003,19 @@ function mapReviewerAlias(login: string): string {
 
 function dedupe(values: string[]): string[] {
   return [...new Set(values)];
+}
+
+// Drop duplicate PRs (same repo + number). Duplicates would collide on the
+// `repo#number` key in the fingerprint map (later overwriting earlier), so the
+// returned token could not round-trip a per-PR baseline.
+function dedupePrs(prs: PrInput[]): PrInput[] {
+  const seen = new Set<string>();
+  const out: PrInput[] = [];
+  for (const pr of prs) {
+    const key = `${pr.repo}#${pr.number}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(pr);
+  }
+  return out;
 }

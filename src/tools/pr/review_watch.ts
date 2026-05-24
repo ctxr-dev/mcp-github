@@ -403,13 +403,24 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
   // The author is the first comment's author (threads(first:1)).
   // This is the actionable-work signal: it equals the outstanding
   // asks the agent still owes the reviewer.
-  const unresolvedByReviewer: Record<string, number> = {};
+  // One pass: lowercased author login -> unresolved, non-outdated thread count.
+  const allUnresolved: Record<string, number> = {};
   for (const thread of rawPr.reviewThreads.nodes) {
     if (thread.isResolved || thread.isOutdated) continue;
     const author = thread.comments.nodes[0]?.author?.login;
     if (!author) continue;
     const key = author.toLowerCase();
-    unresolvedByReviewer[key] = (unresolvedByReviewer[key] ?? 0) + 1;
+    allUnresolved[key] = (allUnresolved[key] ?? 0) + 1;
+  }
+  // The output map (and the fingerprint, which is built from it) cover only
+  // CONFIGURED reviewers: a thread by a non-watched author is not actionable
+  // for this watch, and restricting it keeps the returned output and the
+  // fingerprint consistent (so a non-watched author's thread cannot change the
+  // output without changing the fingerprint).
+  const unresolvedByReviewer: Record<string, number> = {};
+  for (const login of opts.reviewers) {
+    const count = allUnresolved[login.toLowerCase()] ?? 0;
+    if (count > 0) unresolvedByReviewer[login.toLowerCase()] = count;
   }
 
   const required = new Set(opts.requiredApprovals.map((l) => l.toLowerCase()));
@@ -431,7 +442,7 @@ export function evaluatePr(rawPr: RawPR, opts: EvalOptions): PrEvaluation {
     if (!onHead) {
       verdict = "pending";
     } else {
-      const hasOpenThread = (unresolvedByReviewer[login.toLowerCase()] ?? 0) > 0;
+      const hasOpenThread = (allUnresolved[login.toLowerCase()] ?? 0) > 0;
       if (state === "CHANGES_REQUESTED" || hasOpenThread) {
         verdict = "needs-work";
       } else {

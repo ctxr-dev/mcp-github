@@ -248,7 +248,9 @@ test("evaluatePr: open thread by a DIFFERENT author does not make this reviewer 
     { reviewers: ["alice"], requiredApprovals: [], requireCi: false },
   );
   assert.equal(ev.reviewers[0]?.verdict, "green");
-  assert.equal(ev.unresolvedByReviewer["bob"], 1);
+  // bob is not a configured reviewer, so the output map (scoped to configured
+  // reviewers) excludes him; alice has no thread, so she is absent too.
+  assert.equal(ev.unresolvedByReviewer["bob"], undefined);
   assert.equal(ev.unresolvedByReviewer["alice"], undefined);
 });
 
